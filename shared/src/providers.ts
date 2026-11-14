@@ -95,7 +95,7 @@ export const PROVIDER_KINDS: ProviderKindSpec[] = [
 
   // Image
   { type: "image", kind: "openai", label: "OpenAI 相容 Images", defaultBaseUrl: "https://api.openai.com/v1", keyRequired: false, canListModels: true, suggestedModels: ["gpt-image-1"] },
-  { type: "image", kind: "gemini", label: "Gemini（圖片模型）", defaultBaseUrl: "https://generativelanguage.googleapis.com", keyRequired: true, canListModels: true },
+  { type: "image", kind: "gemini", label: "Gemini（圖片模型）", defaultBaseUrl: "https://generativelanguage.googleapis.com", keyRequired: true, canListModels: true, suggestedModels: ["gemini-2.5-flash-image"] },
   { type: "image", kind: "workers_ai", label: "Cloudflare Workers AI", defaultBaseUrl: "https://api.cloudflare.com/client/v4", keyRequired: true, canListModels: false, configFields: [cfAccount], suggestedModels: ["@cf/black-forest-labs/flux-1-schnell"] },
 ];
 

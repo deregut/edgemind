@@ -15,6 +15,7 @@ import { kbSearchTool } from "../tools/kb";
 import { skillTools } from "../tools/skills";
 import { codeRunTool } from "../tools/code";
 import { httpRequestTool } from "../tools/http";
+import { imageGenerateTool } from "../tools/image";
 import type { AiBinding } from "../providers/probe";
 
 export interface ToolContext {
@@ -163,5 +164,5 @@ export const getTimeTool: Tool = {
 };
 
 export function builtinRegistry(): ToolRegistry {
-  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, codeRunTool, httpRequestTool, todoTool, askUserTool);
+  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, codeRunTool, httpRequestTool, imageGenerateTool, todoTool, askUserTool);
 }
