@@ -64,12 +64,14 @@ export function testEnv(url: string): AppEnv & Record<string, string> {
 export class TestClient {
   cookies = new Map<string, string>();
   constructor(private app: { request: (path: string, init: RequestInit, env: Record<string, unknown>) => Response | Promise<Response> }, private env: Record<string, unknown>, public ip = "1.2.3.4") {}
-  async req(method: string, path: string, body?: unknown, opts: { csrf?: boolean; headers?: Record<string, string> } = {}) {
+  async req(method: string, path: string, body?: unknown, opts: { csrf?: boolean; headers?: Record<string, string>; bytes?: boolean } = {}) {
     const headers: Record<string, string> = { "x-forwarded-for": this.ip, ...opts.headers };
     if (this.cookies.size) headers.cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; ");
     if (opts.csrf !== false && this.cookies.has("em_csrf")) headers["x-csrf-token"] = this.cookies.get("em_csrf")!;
-    if (body !== undefined) headers["content-type"] = "application/json";
-    const res = await this.app.request(`http://localhost/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }, this.env);
+    const raw = body instanceof Uint8Array;
+    if (body !== undefined && !raw) headers["content-type"] = "application/json";
+    if (raw) headers["content-length"] = String((body as Uint8Array).byteLength);
+    const res = await this.app.request(`http://localhost/api${path}`, { method, headers, body: raw ? (body as BodyInit) : body !== undefined ? JSON.stringify(body) : undefined }, this.env);
     for (const sc of res.headers.getSetCookie()) {
       const [pair, ...attrs] = sc.split(";");
       const i = pair.indexOf("=");
@@ -78,6 +80,7 @@ export class TestClient {
       if (!v || attrs.some((a) => /max-age=0/i.test(a))) this.cookies.delete(k);
       else this.cookies.set(k, v);
     }
+    if (opts.bytes && res.ok) return { status: res.status, body: new Uint8Array(await res.arrayBuffer()) as any, headers: res.headers };
     const text = await res.text();
     let json: any;
     try { json = JSON.parse(text); } catch { json = text; }

@@ -326,6 +326,10 @@ export const skills = pgTable("skills", {
   source: text("source").notNull().default("upload"), // upload | editor | github | model
   sourceUrl: text("source_url"),
   enabled: boolean("enabled").notNull().default(true),
+  /** Manifest of the skill folder on S3 (`{s3Prefix}{path}`), SKILL.md included. */
+  files: jsonb("files").$type<{ path: string; size: number; mime: string }[]>().notNull().default([]),
+  /** Parsed SKILL.md front matter. */
+  frontmatter: jsonb("frontmatter").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [uniqueIndex("skills_name_uq").on(t.name)]);

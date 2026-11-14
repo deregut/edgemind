@@ -111,5 +111,13 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "CREATE INDEX \"kb_collections_project_idx\" ON \"kb_collections\" USING btree (\"project_id\");",
    "CREATE INDEX \"messages_search_tsv_idx\" ON \"messages\" USING gin (\"search_tsv\");"
   ]
+ },
+ {
+  "tag": "0004_lush_miracleman",
+  "hash": "11be1ce7901bb8f88b9355c48a90d554696e19eccb2743752449411a8b6cfdea",
+  "statements": [
+   "ALTER TABLE \"skills\" ADD COLUMN \"files\" jsonb DEFAULT '[]'::jsonb NOT NULL;",
+   "ALTER TABLE \"skills\" ADD COLUMN \"frontmatter\" jsonb DEFAULT '{}'::jsonb NOT NULL;"
+  ]
  }
 ];

@@ -33,6 +33,8 @@ export interface ProjectDTO {
   permissionMode: PermissionMode | null;
   /** null = every tool enabled. */
   enabledTools: string[] | null;
+  /** null = every enabled skill; else skill ids. */
+  enabledSkills: string[] | null;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +48,7 @@ export interface ProjectInput {
   defaultModelId?: string | null;
   permissionMode?: PermissionMode | null;
   enabledTools?: string[] | null;
+  enabledSkills?: string[] | null;
   archived?: boolean;
 }
 

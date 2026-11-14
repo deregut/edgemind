@@ -3,6 +3,7 @@
  * recalled memories (M10) → conversation history along the active branch (compaction in M10).
  */
 import { attachedCollections } from "../rag/kb";
+import { skillsSection as defaultSkillsSection } from "../tools/skills";
 import { asc, eq } from "drizzle-orm";
 import type { Message } from "@edgemind/shared";
 import type { Database } from "../db/client";
@@ -67,7 +68,9 @@ export async function assembleContext(database: Database, conversationId: string
   const branch = await loadBranch(database, conversationId, leafId);
   const history: Message[] = branch.filter((r) => r.role !== "system").map((r) => ({ role: r.role as Message["role"], parts: r.parts }));
 
-  const skills = (await hooks.skillsSection?.({ conversationId, projectId })) ?? "";
+  const skills = hooks.skillsSection
+    ? await hooks.skillsSection({ conversationId, projectId })
+    : await defaultSkillsSection(database, projectId).catch(() => "");
   if (skills.trim()) sections.push(`# 可用的 Skills\n${skills.trim()}`);
 
   const lastUser = [...history].reverse().find((m) => m.role === "user");

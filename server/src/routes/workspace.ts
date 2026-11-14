@@ -54,6 +54,7 @@ const projDTO = (r: ProjRow, conversationCount?: number): ProjectDTO => ({
   defaultModelId: r.defaultModelId,
   permissionMode: (r.permissionMode as PermissionMode | null) ?? null,
   enabledTools: r.enabledTools ?? null,
+  enabledSkills: r.enabledSkills ?? null,
   archived: r.archived,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
@@ -315,6 +316,11 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
       if (body.enabledTools !== null && (!Array.isArray(body.enabledTools) || body.enabledTools.some((t: unknown) => typeof t !== "string" || t.length > 200)))
         throw new BadInput("enabledTools 必須是工具名稱陣列或 null");
       out.enabledTools = body.enabledTools === null ? null : [...new Set<string>(body.enabledTools)];
+    }
+    if (body.enabledSkills !== undefined) {
+      if (body.enabledSkills !== null && (!Array.isArray(body.enabledSkills) || body.enabledSkills.some((t: unknown) => typeof t !== "string" || t.length > 100)))
+        throw new BadInput("enabledSkills 必須是 Skill id 陣列或 null");
+      out.enabledSkills = body.enabledSkills === null ? null : [...new Set<string>(body.enabledSkills)];
     }
     if (body.archived !== undefined) out.archived = !!body.archived;
     return out;
