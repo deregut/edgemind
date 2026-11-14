@@ -172,35 +172,54 @@ async function searchOnce(f: Fetch, t: ProbeTarget, q: string): Promise<number> 
   throw new ProviderHttpError(0, "未知的搜尋供應商");
 }
 
-/** Returns the embedding dimension. */
-export async function embedOnce(f: Fetch, t: ProbeTarget, model: string, text = "ping"): Promise<number> {
+/** Embed a batch of texts with any supported embedding provider. */
+export async function embedTexts(f: Fetch, t: ProbeTarget, model: string, texts: string[], inputType: "document" | "query" = "document"): Promise<number[][]> {
   const b = baseOf(t);
-  let vec: number[] | undefined;
+  let vecs: unknown;
   switch (t.kind) {
     case "gemini": {
-      const d = await call(f, `${root(b, /\/v1(beta)?$/)}/v1beta/models/${encodeURIComponent(model)}:embedContent`, json({ content: { parts: [{ text }] } }, geminiHeaders(t.apiKey)), t.apiKey);
-      vec = d.embedding?.values;
+      const base = root(b, /\/v1(beta)?$/);
+      const name = model.startsWith("models/") ? model : `models/${model}`;
+      const taskType = inputType === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
+      const d = await call(f, `${base}/v1beta/${name}:batchEmbedContents`, json({ requests: texts.map((text) => ({ model: name, content: { parts: [{ text }] }, taskType })) }, geminiHeaders(t.apiKey)), t.apiKey);
+      vecs = d.embeddings?.map((e: any) => e.values);
       break;
     }
     case "cohere": {
-      const d = await call(f, `${root(b, /\/v[12]$/)}/v2/embed`, json({ model, texts: [text], input_type: "search_document", embedding_types: ["float"] }, bearer(t.apiKey)), t.apiKey);
-      vec = d.embeddings?.float?.[0];
+      const d = await call(f, `${root(b, /\/v[12]$/)}/v2/embed`, json({ model, texts, input_type: inputType === "query" ? "search_query" : "search_document", embedding_types: ["float"] }, bearer(t.apiKey)), t.apiKey);
+      vecs = d.embeddings?.float;
       break;
     }
     case "workers_ai": {
       if (!t.config.accountId) throw new ProviderHttpError(0, "缺少 Cloudflare Account ID");
-      const d = await call(f, `${b}/accounts/${encodeURIComponent(t.config.accountId)}/ai/run/${model}`, json({ text: [text] }, bearer(t.apiKey)), t.apiKey);
-      vec = d.result?.data?.[0];
+      const d = await call(f, `${b}/accounts/${encodeURIComponent(t.config.accountId)}/ai/run/${model}`, json({ text: texts }, bearer(t.apiKey)), t.apiKey);
+      vecs = d.result?.data;
+      break;
+    }
+    case "voyage": {
+      const d = await call(f, `${b}/embeddings`, json({ model, input: texts, input_type: inputType }, bearer(t.apiKey)), t.apiKey);
+      vecs = d.data?.map((x: any) => x.embedding);
       break;
     }
     default: {
-      // openai, openai_compatible, mistral, jina, voyage share the OpenAI embeddings shape
-      const d = await call(f, `${b}/embeddings`, json({ model, input: [text] }, bearer(t.apiKey)), t.apiKey);
-      vec = d.data?.[0]?.embedding;
+      // openai, openai_compatible, mistral, jina share the OpenAI embeddings shape
+      const d = await call(f, `${b}/embeddings`, json({ model, input: texts }, bearer(t.apiKey)), t.apiKey);
+      vecs = (d.data as any[] | undefined)?.slice().sort((x, y) => (x.index ?? 0) - (y.index ?? 0)).map((x) => x.embedding);
     }
   }
-  if (!Array.isArray(vec) || !vec.length) throw new ProviderHttpError(0, "回應中沒有 embedding 向量");
-  return vec.length;
+  if (!Array.isArray(vecs) || vecs.length !== texts.length || !vecs.every((v) => Array.isArray(v) && v.length)) throw new ProviderHttpError(0, "回應中沒有 embedding 向量");
+  return vecs as number[][];
+}
+
+/** Returns the embedding dimension. */
+export async function embedOnce(f: Fetch, t: ProbeTarget, model: string, text = "ping"): Promise<number> {
+  if (t.kind === "gemini") {
+    const d = await call(f, `${root(baseOf(t), /\/v1(beta)?$/)}/v1beta/models/${encodeURIComponent(model)}:embedContent`, json({ content: { parts: [{ text }] } }, geminiHeaders(t.apiKey)), t.apiKey);
+    const vec = d.embedding?.values;
+    if (!Array.isArray(vec) || !vec.length) throw new ProviderHttpError(0, "回應中沒有 embedding 向量");
+    return vec.length;
+  }
+  return (await embedTexts(f, t, model, [text]))[0].length;
 }
 
 async function rerankOnce(f: Fetch, t: ProbeTarget, model: string): Promise<number> {

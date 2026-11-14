@@ -13,6 +13,9 @@
 - 自寫 LLM 適配層（原生 fetch）：OpenAI 相容、Anthropic Messages、Gemini generateContent
 - 所有 API Key 以 AES-GCM 加密後存入資料庫
 - 介面為正體中文，支援淺色／深色／跟隨系統
+- 聊天：串流 Markdown（程式碼高亮、KaTeX、Mermaid）、思考過程、工具呼叫卡片、批准卡片、分支切換、重新生成、匯出 Markdown／JSON、背景執行
+- 專案：專屬指示、預設模型與權限模式、啟用工具篩選、檔案空間（瀏覽器直傳 S3，大檔自動分段上傳，保留版本）
+- 內建工具：`web_search`（Tavily／Serper／SearXNG／Jina／Google PSE，依優先順序備援，結果一律限長）、`web_fetch`（Readability 轉 Markdown、分段讀取、SSRF 防護、Jina Reader 備援）、`file_*`、`memory_*`、`todo`、`ask_user`
 
 ## 技術架構
 
@@ -76,6 +79,9 @@ npx wrangler pages deploy
 - CSRF：double-submit token（`X-CSRF-Token` 標頭）＋ Origin 檢查
 - 登入速率限制：同一 IP 15 分鐘內失敗 5 次即暫停；全站 15 分鐘內失敗 30 次也會暫停
 - API Key：AES-256-GCM 加密（以供應商 ID 作為 AAD），API 只回傳遮罩後的預覽
+- `web_fetch`：只允許 http(s)；以 DNS-over-HTTPS 解析主機，任何解析到內網／保留位址（含 IPv6、IPv4-mapped）的網址一律封鎖，每次重新導向都重新檢查；解析失敗即拒絕
+- 物件儲存：上傳一律用預簽名 URL 由瀏覽器直傳；第一次上傳時自動為目前網站來源設定 Bucket CORS（也可在 設定 → 儲存空間 手動套用；若服務商不允許以 API 設定，請到後台加入：允許 GET/PUT/HEAD、所有標頭、公開 `ETag` 標頭）
+- 「全部權限」模式可設定步數、Token 與花費上限（設定 → Agent 與權限）
 
 ## 本機開發
 

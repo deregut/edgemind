@@ -20,6 +20,7 @@ import { hmacHex, timingSafeEqual } from "../lib/crypto";
 import { abortLocalRun, closeStoppedRun, driveRun, pendingApprovals, runSegment, type AgentEnv } from "../agent/loop";
 import { appendStep, getRun, insertMessage, STALE_LEASE_MS, toMessageDTO, transition, type Checkpoint, type RunOptions } from "../agent/store";
 import { builtinRegistry } from "../agent/tools";
+import { fileStore } from "./files";
 import { isPermissionMode } from "../agent/permissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -120,6 +121,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     encKey: c.get("encKey"),
     registry,
     fetch: deps.fetch,
+    storage: fileStore(c, deps),
     ...deps.agent,
   });
 
@@ -328,30 +330,28 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     return c.json({ status: fresh?.status ?? "stopping" });
   });
 
-  app.post("/runs/:id/approvals", async (c) => {
-    const id = c.req.param("id");
-    if (!isUuid(id)) return c.json({ error: "not_found" }, 404);
-    const body = await c.req.json().catch(() => null);
-    const decision = body?.decision as ApprovalDecision;
-    if (!["allow_once", "allow_conversation", "deny"].includes(decision)) throw new BadInput("decision 必須是 allow_once、allow_conversation 或 deny");
-    if (typeof body?.toolCallId !== "string") throw new BadInput("缺少 toolCallId");
+  /** Record a decision (approval or ask_user answer) and resume the run when nothing else is pending. */
+  async function decide(c: Ctx, id: string, toolCallId: unknown, kind: "approval" | "question", decision: ApprovalDecision, answer?: string) {
+    if (typeof toolCallId !== "string") throw new BadInput("缺少 toolCallId");
     const database = c.get("database");
     const db = database.db;
     const run = await getRun(database, id);
     if (!run) return c.json({ error: "not_found", message: "找不到執行紀錄" }, 404);
-    const [appr] = await db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolCallId, body.toolCallId))).limit(1);
-    if (!appr) return c.json({ error: "not_found", message: "找不到待批准的工具呼叫" }, 404);
+    const [appr] = await db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolCallId, toolCallId))).limit(1);
+    if (!appr) return c.json({ error: "not_found", message: kind === "question" ? "找不到待回答的問題" : "找不到待批准的工具呼叫" }, 404);
     if (appr.status !== "pending") return c.json({ error: "conflict", message: "此工具呼叫已經處理過" }, 409);
+    if (appr.kind === "question" && kind === "approval" && decision !== "deny") throw new BadInput("這是提問，請用 /answers 回答（或拒絕以略過）");
+    if (appr.kind !== "question" && kind === "question") throw new BadInput("這不是提問");
     const status = decision === "deny" ? "denied" : "approved";
     const scope = decision === "allow_conversation" ? "conversation" : "once";
-    await db.update(toolApprovals).set({ status, scope, decidedAt: new Date() }).where(eq(toolApprovals.id, appr.id));
+    await db.update(toolApprovals).set({ status, scope, decidedAt: new Date(), ...(answer !== undefined ? { answer } : {}) }).where(eq(toolApprovals.id, appr.id));
     if (decision === "allow_conversation") {
       // other pending calls of the same tool in this run are covered too
       await db.update(toolApprovals).set({ status: "approved", scope: "conversation", decidedAt: new Date() })
-        .where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolName, appr.toolName), eq(toolApprovals.status, "pending")));
+        .where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolName, appr.toolName), eq(toolApprovals.status, "pending"), eq(toolApprovals.kind, "approval")));
     }
-    await db.insert(auditLogs).values({ action: "tool_approval", runId: id, conversationId: run.conversationId, toolName: appr.toolName, decision: status, detail: { toolCallId: appr.toolCallId, scope } });
-    await appendStep(database, id, "approval", { approvalId: appr.id, toolCallId: appr.toolCallId, toolName: appr.toolName, status, scope });
+    await db.insert(auditLogs).values({ action: appr.kind === "question" ? "ask_user_answer" : "tool_approval", runId: id, conversationId: run.conversationId, toolName: appr.toolName, decision: status, detail: { toolCallId: appr.toolCallId, scope } });
+    await appendStep(database, id, "approval", { approvalId: appr.id, toolCallId: appr.toolCallId, toolName: appr.toolName, status, scope, kind: appr.kind });
     const remaining = await pendingApprovals(database, id, registry);
     let runStatus = run.status as RunStatus;
     if (!remaining.length && run.status === "waiting_approval") {
@@ -359,6 +359,25 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
       if (runStatus === "paused" && run.mode === "background") await startBackground(c, id);
     }
     return c.json({ status: runStatus, remaining, resume: runStatus === "paused" && run.mode !== "background" });
+  }
+
+  app.post("/runs/:id/approvals", async (c) => {
+    const id = c.req.param("id");
+    if (!isUuid(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const decision = body?.decision as ApprovalDecision;
+    if (!["allow_once", "allow_conversation", "deny"].includes(decision)) throw new BadInput("decision 必須是 allow_once、allow_conversation 或 deny");
+    return decide(c, id, body?.toolCallId, "approval", decision);
+  });
+
+  /** ask_user answers. */
+  app.post("/runs/:id/answers", async (c) => {
+    const id = c.req.param("id");
+    if (!isUuid(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    if (typeof body?.answer !== "string" || !body.answer.trim()) throw new BadInput("請輸入回答");
+    if (body.answer.length > 20_000) throw new BadInput("回答過長");
+    return decide(c, id, body?.toolCallId, "question", "allow_once", body.answer.trim());
   });
 
   app.get("/conversations/:id/messages", async (c) => {

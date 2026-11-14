@@ -74,5 +74,15 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "CREATE INDEX \"tool_policies_scope_idx\" ON \"tool_policies\" USING btree (\"scope\",\"scope_id\");",
    "CREATE INDEX \"usage_logs_time_idx\" ON \"usage_logs\" USING btree (\"created_at\");"
   ]
+ },
+ {
+  "tag": "0002_fancy_virginia_dare",
+  "hash": "173a90cdc4490f8a0497cdb5d0cfbda2f3d18e1fec9619cf18e7d98c4c2c7e99",
+  "statements": [
+   "ALTER TABLE \"conversations\" ADD COLUMN \"todos\" jsonb;",
+   "ALTER TABLE \"files\" ADD COLUMN \"upload_id\" text;",
+   "ALTER TABLE \"tool_approvals\" ADD COLUMN \"kind\" text DEFAULT 'approval' NOT NULL;",
+   "ALTER TABLE \"tool_approvals\" ADD COLUMN \"answer\" jsonb;"
+  ]
  }
 ];

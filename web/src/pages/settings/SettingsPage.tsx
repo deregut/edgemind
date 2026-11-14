@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { ProviderDialog } from "./ProviderDialog";
 import { ModelsDialog } from "./ModelsDialog";
 import { AgentSettingsSection } from "./AgentSettings";
+import { StorageSection } from "./StorageSettings";
 
 const TYPE_HELP: Record<ProviderType, string> = {
   llm: "支援 OpenAI 相容、Anthropic Messages、Gemini 三種協定，涵蓋 OpenRouter、DeepSeek、Groq、Mistral、xAI、Ollama 等。",
@@ -32,11 +33,13 @@ export function SettingsPage() {
         <TabsList>
           <TabsTrigger value="providers">供應商</TabsTrigger>
           <TabsTrigger value="agent">Agent 與權限</TabsTrigger>
+          <TabsTrigger value="storage">儲存空間</TabsTrigger>
           <TabsTrigger value="security">帳號安全</TabsTrigger>
           <TabsTrigger value="appearance">外觀</TabsTrigger>
         </TabsList>
         <TabsContent value="providers"><ProvidersSection /></TabsContent>
         <TabsContent value="agent"><AgentSettingsSection /></TabsContent>
+        <TabsContent value="storage"><StorageSection /></TabsContent>
         <TabsContent value="security"><SecuritySection /></TabsContent>
         <TabsContent value="appearance">
           <Card>

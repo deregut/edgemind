@@ -23,6 +23,8 @@ export interface AppDeps {
   getDatabase(env: AppEnv): Database;
   /** Outbound fetch for provider calls (mocked in tests). */
   fetch?: typeof fetch;
+  /** fetch used for S3 (tests: in-memory S3 mock). Default: global fetch. */
+  s3Fetch?: typeof fetch;
   platform?: Platform;
   /** Tool registry for the agent loop (default: built-ins). */
   tools?: import("./agent/tools").ToolRegistry;

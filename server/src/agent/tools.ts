@@ -6,6 +6,11 @@
  */
 import type { RiskLevel, ToolDef } from "@edgemind/shared";
 import type { Database } from "../db/client";
+import type { FileStore } from "../storage/files";
+import { webFetchTool, webSearchTool } from "../tools/web";
+import { fileTools } from "../tools/files";
+import { memoryTools } from "../tools/memory";
+import { askUserTool, todoTool } from "../tools/misc";
 
 export interface ToolContext {
   runId: string;
@@ -13,6 +18,11 @@ export interface ToolContext {
   projectId: string | null;
   signal: AbortSignal;
   database: Database;
+  encKey: Uint8Array;
+  /** Outbound HTTP (mocked in tests). */
+  fetch: typeof fetch;
+  /** Project file storage (S3). */
+  storage?: FileStore;
 }
 
 export interface ToolTargets {
@@ -113,5 +123,5 @@ export const getTimeTool: Tool = {
 };
 
 export function builtinRegistry(): ToolRegistry {
-  return new ToolRegistry().register(echoTool, getTimeTool);
+  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, todoTool, askUserTool);
 }

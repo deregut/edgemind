@@ -15,6 +15,13 @@
       "when": 1794634590572,
       "tag": "0001_init",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794637427865,
+      "tag": "0002_fancy_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

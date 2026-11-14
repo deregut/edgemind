@@ -137,6 +137,8 @@ export const conversations = pgTable("conversations", {
   summary: text("summary"),
   /** The leaf message of the active branch. */
   activeLeafId: uuid("active_leaf_id"),
+  /** The model's own task list (todo tool). */
+  todos: jsonb("todos").$type<{ content: string; status: string }[]>(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [index("conversations_updated_idx").on(t.updatedAt), index("conversations_project_idx").on(t.projectId)]);
@@ -196,6 +198,10 @@ export const toolApprovals = pgTable("tool_approvals", {
   args: jsonb("args"),
   status: text("status").notNull().default("pending"), // pending | approved | denied
   scope: text("scope"), // once | conversation
+  /** approval | question (ask_user) */
+  kind: text("kind").notNull().default("approval"),
+  /** The user's answer for kind = question. */
+  answer: jsonb("answer"),
   createdAt: createdAt(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
 });
@@ -214,6 +220,8 @@ export const files = pgTable("files", {
   sha256: text("sha256"),
   version: integer("version").notNull().default(1),
   status: text("status").notNull().default("ready"), // pending | ready | deleted
+  /** In-progress S3 multipart upload id (browser-direct upload). */
+  uploadId: text("upload_id"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [index("files_project_path_idx").on(t.projectId, t.path), uniqueIndex("files_s3key_uq").on(t.s3Key)]);

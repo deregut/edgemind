@@ -23,6 +23,7 @@ import { builtinRegistry } from "../agent/tools";
 import { loadBranch } from "../agent/context";
 import { collect, resolveModel, streamChat } from "../llm";
 import { resultToString } from "../llm/types";
+import { fileStore } from "./files";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
@@ -316,7 +317,8 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
   app.delete("/projects/:id", async (c) => {
     const id = c.req.param("id");
     if (!isUuid(id)) return c.json({ error: "not_found" }, 404);
-    // Conversations are kept (project_id → null); project files are removed by the files module.
+    // Conversations are kept (project_id → null); project file objects are purged from S3, rows cascade.
+    await fileStore(c, deps).purgeProject(id).catch((e) => console.error("[edgemind] purge project files failed", e));
     const r = await c.get("database").db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
     if (!r.length) return c.json({ error: "not_found", message: "找不到專案" }, 404);
     return c.json({ ok: true });

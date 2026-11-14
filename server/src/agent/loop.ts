@@ -26,6 +26,8 @@ import {
   type Checkpoint, type PendingTools, type RunRow,
 } from "./store";
 import type { Tool, ToolRegistry } from "./tools";
+import { resolveFilePart, type FileStore } from "../storage/files";
+import type { Message, Part } from "@edgemind/shared";
 
 export interface AgentEnv {
   database: Database;
@@ -38,6 +40,8 @@ export interface AgentEnv {
   heartbeatMs?: number;
   /** Cap on a serialized tool result fed back to the model. Default 50 000 chars. */
   maxToolResultChars?: number;
+  /** Project file storage (S3); also resolves `fileId` attachment parts for the model. */
+  storage?: FileStore;
   /** Override model resolution (tests). */
   resolveModel?: (modelRowId: string) => Promise<ResolvedModel>;
 }
@@ -102,7 +106,8 @@ export async function pendingApprovals(database: Database, runId: string, regist
     toolName: r.toolName,
     args: r.args,
     risk: registry?.get(r.toolName)?.risk ?? "unknown",
-    reason: "需要你的批准",
+    reason: r.kind === "question" ? "等待你的回答" : "需要你的批准",
+    kind: r.kind === "question" ? ("question" as const) : ("approval" as const),
   }));
 }
 
@@ -129,6 +134,36 @@ async function flushPendingAsStopped(database: Database, run: RunRow, cp: Checkp
   cp.leafId = row.id;
   cp.pending = undefined;
   return row;
+}
+
+/** Replace `{type:"file", fileId}` parts with inline content from S3 (cached per segment). */
+async function resolveFileParts(store: FileStore, msgs: Message[], cache: Map<string, Part>): Promise<Message[]> {
+  const out: Message[] = [];
+  for (const m of msgs) {
+    if (!m.parts.some((p) => p.type === "file" && p.fileId && !p.data && p.text === undefined && !p.url)) {
+      out.push(m);
+      continue;
+    }
+    const parts: Part[] = [];
+    for (const p of m.parts) {
+      if (p.type !== "file" || !p.fileId || p.data || p.text !== undefined || p.url) {
+        parts.push(p);
+        continue;
+      }
+      let r = cache.get(p.fileId);
+      if (!r) {
+        try {
+          r = await resolveFilePart(store, p);
+        } catch (e) {
+          r = { type: "text", text: `[附件：${p.name}（讀取失敗：${errMsg(e)}）]` };
+        }
+        cache.set(p.fileId, r);
+      }
+      parts.push(r);
+    }
+    out.push({ ...m, parts });
+  }
+  return out;
 }
 
 export async function runSegment(env: AgentEnv, runId: string, opts: SegmentOptions): Promise<SegmentOutcome> {
@@ -263,6 +298,7 @@ async function segmentBody(
   const saveCp = () => saveRun(db, runId, { checkpoint: cp, stepCount });
 
   let modelStepsThisSegment = 0;
+  const fileCache = new Map<string, Part>();
 
   for (;;) {
     if (stopSignal.aborted) return finalizeStopped();
@@ -297,6 +333,23 @@ async function segmentBody(
           setResult(call.id, argErr, true);
           await audit(call.name, "deny", { callId: call.id, reason: "bad_arguments" });
           emit({ type: "tool-result", callId: call.id, name: call.name, result: argErr, isError: true });
+          continue;
+        }
+        if (tool.interactive) {
+          const [appr] = await db.db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, runId), eq(toolApprovals.toolCallId, call.id))).limit(1);
+          if (!appr) {
+            const [row] = await db.db.insert(toolApprovals).values({ runId, conversationId, toolCallId: call.id, toolName: call.name, args: call.args as object, kind: "question" }).returning();
+            await appendStep(db, runId, "approval", { approvalId: row.id, toolCallId: call.id, toolName: call.name, args: call.args, status: "pending", kind: "question" });
+            waiting.push({ id: row.id, toolCallId: call.id, toolName: call.name, args: call.args, risk: tool.risk, reason: "等待你的回答", kind: "question" });
+          } else if (appr.status === "pending") {
+            waiting.push({ id: appr.id, toolCallId: call.id, toolName: call.name, args: call.args, risk: tool.risk, reason: "等待你的回答", kind: "question" });
+          } else {
+            const result = appr.status === "approved" ? { answer: appr.answer } : { skipped: true, note: "使用者略過了這個問題，請自行判斷或換個方式繼續。" };
+            setResult(call.id, result);
+            await audit(call.name, appr.status === "approved" ? "answered" : "skipped", { callId: call.id });
+            await appendStep(db, runId, "tool_result", { callId: call.id, name: call.name, isError: false, result });
+            emit({ type: "tool-result", callId: call.id, name: call.name, result });
+          }
           continue;
         }
         const g = evaluate({ mode, toolName: tool.name, risk: tool.risk, targets: registry.targetsOf(tool, call.args), policies, grants });
@@ -337,7 +390,10 @@ async function segmentBody(
           let result: unknown;
           let isError = false;
           try {
-            result = await tool.execute(call.args, { runId, conversationId, projectId, signal: workSignal, database: db });
+            result = await tool.execute(call.args, {
+              runId, conversationId, projectId, signal: workSignal, database: db, encKey: env.encKey,
+              fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage,
+            });
           } catch (e) {
             if (workSignal.aborted) return; // re-run next segment (deadline) or flushed as stopped
             result = `工具執行失敗：${errMsg(e)}`;
@@ -393,6 +449,7 @@ async function segmentBody(
 
     // ---------- 3. model step ----------
     const ctx = await assembleContext(db, conversationId, cp.leafId, env.hooks);
+    if (env.storage) ctx.messages = await resolveFileParts(env.storage, ctx.messages, fileCache);
     const tools = registry.defs((t) => toolAvailable(t) && (mode === "plan" ? t.risk === "read" : true));
     const req: ChatRequest = {
       model: model.model,

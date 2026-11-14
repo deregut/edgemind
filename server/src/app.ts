@@ -11,6 +11,7 @@ import { mountProviders } from "./routes/providers";
 import { mountChat } from "./routes/chat";
 import { mountPermissions } from "./routes/permissions";
 import { mountWorkspace } from "./routes/workspace";
+import { mountFiles } from "./routes/files";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -89,6 +90,7 @@ export function createApp(deps: AppDeps) {
   mountChat(app, deps);
   mountPermissions(app, deps);
   mountWorkspace(app, deps);
+  mountFiles(app, deps);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;

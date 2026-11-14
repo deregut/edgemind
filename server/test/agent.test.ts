@@ -449,7 +449,7 @@ describe("permission modes (integration)", () => {
     await setMode(c, "global", "plan");
     script = [calls([{ id: "p1", name: "write_note", args: { path: "a" } }]), text("ok")];
     const r = await chat({ content: "x", modelId: modelRowId });
-    expect(llmBodies[0].tools.map((x: any) => x.function.name).sort()).toEqual(["echo", "get_time", "slow_a", "slow_b"]);
+    expect(llmBodies[0].tools.map((x: any) => x.function.name).sort()).toEqual(["ask_user", "echo", "get_time", "memory_search", "slow_a", "slow_b", "todo", "web_fetch", "web_search"]);
     expect(r.events.find((e) => e.type === "tool-result")).toMatchObject({ isError: true });
     expect(executed).toEqual([]);
   });
