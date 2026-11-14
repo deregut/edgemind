@@ -128,6 +128,7 @@ beforeAll(async () => {
   expect(p.status).toBe(201);
   const m = await c.req("PUT", `/providers/${p.body.id}/models`, { models: [{ modelId: "mock-1", capabilities: { tools: true } }] });
   modelRowId = m.body[0].id;
+  expect((await c.req("PUT", "/settings/memory", { autoExtract: false })).status).toBe(200);
 });
 afterAll(async () => t?.drop());
 beforeEach(async () => {

@@ -29,7 +29,7 @@ export class Harness {
   routes: Route[] = [];
   outbound: { url: string; init: RequestInit }[] = [];
 
-  constructor(private opts: { tools?: ToolRegistry; deps?: Partial<AppDeps> } = {}) {}
+  constructor(private opts: { tools?: ToolRegistry; deps?: Partial<AppDeps>; autoExtract?: boolean } = {}) {}
 
   fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
@@ -78,6 +78,8 @@ export class Harness {
     expect(p.status).toBe(201);
     const m = await c.req("PUT", `/providers/${p.body.id}/models`, { models: [{ modelId: "mock-1", capabilities: { tools: true, vision: true } }] });
     this.modelRowId = m.body[0].id;
+    // Auto memory extraction would consume scripted LLM replies in the background; tests opt in explicitly.
+    if (!this.opts.autoExtract) expect((await c.req("PUT", "/settings/memory", { autoExtract: false })).status).toBe(200);
   }
 
   async teardown() {

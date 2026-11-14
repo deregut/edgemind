@@ -21,6 +21,7 @@ import { aiBinding } from "./kb";
 import { abortLocalRun, closeStoppedRun, driveRun, pendingApprovals, runSegment, type AgentEnv } from "../agent/loop";
 import { appendStep, getRun, insertMessage, STALE_LEASE_MS, toMessageDTO, transition, type Checkpoint, type RunOptions } from "../agent/store";
 import { builtinRegistry } from "../agent/tools";
+import { extractMemories } from "../memory";
 import { fileStore } from "./files";
 import { isPermissionMode } from "../agent/permissions";
 
@@ -124,6 +125,8 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     fetch: deps.fetch,
     storage: fileStore(c, deps),
     ai: aiBinding(c),
+    onCompleted: (runId) =>
+      runInBackground(c, extractMemories(c.get("database"), c.get("encKey"), deps.fetch ?? ((...a) => fetch(...a)), runId).catch((e) => console.error("[edgemind] memory extraction failed", e))),
     ...deps.agent,
   });
 

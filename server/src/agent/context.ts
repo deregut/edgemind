@@ -45,6 +45,8 @@ export interface AssembledContext {
   system: string;
   messages: Message[];
   projectId: string | null;
+  /** Number of branch messages replaced by the compaction summary. */
+  compactedMessages?: number;
 }
 
 export async function assembleContext(database: Database, conversationId: string, leafId: string, hooks: ContextHooks = {}): Promise<AssembledContext> {
@@ -65,7 +67,10 @@ export async function assembleContext(database: Database, conversationId: string
     sections.push(`# 知識庫\n以下知識庫可用 kb_search 工具檢索；問題可能與其內容相關時先檢索，回答時以 [n] 標註引用並列出來源檔名。\n${lines.join("\n")}`);
   }
 
-  const branch = await loadBranch(database, conversationId, leafId);
+  const fullBranch = await loadBranch(database, conversationId, leafId);
+  // Compaction (M10): messages up to `summaryUpTo` are replaced by the summary while it lies on this branch.
+  const cutAt = conv?.summaryUpTo ? fullBranch.findIndex((m) => m.id === conv.summaryUpTo) + 1 : 0;
+  const branch = cutAt > 0 ? fullBranch.slice(cutAt) : fullBranch;
   const history: Message[] = branch.filter((r) => r.role !== "system").map((r) => ({ role: r.role as Message["role"], parts: r.parts }));
 
   const skills = hooks.skillsSection
@@ -78,7 +83,7 @@ export async function assembleContext(database: Database, conversationId: string
   const memories = (await hooks.memoriesSection?.({ conversationId, projectId, query })) ?? "";
   if (memories.trim()) sections.push(`# 相關記憶\n${memories.trim()}`);
 
-  if (conv?.summary?.trim()) sections.push(`# 先前對話摘要\n${conv.summary.trim()}`);
+  if (cutAt > 0 && conv?.summary?.trim()) sections.push(`# 先前對話摘要\n以下是這段對話較早部分的摘要（原始訊息已壓縮）：\n${conv.summary.trim()}`);
 
-  return { system: sections.join("\n\n"), messages: history, projectId };
+  return { system: sections.join("\n\n"), messages: history, projectId, compactedMessages: cutAt };
 }

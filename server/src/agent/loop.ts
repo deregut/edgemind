@@ -21,6 +21,7 @@ import { costOf, getFullModeCaps, getModelPrices } from "../lib/settings";
 import { AssistantBuilder, resolveModel, streamChat, type Fetch, type ResolvedModel, type RetryOptions } from "../llm";
 import { assembleContext, type ContextHooks } from "./context";
 import { buildMcpTools, mcpRisks } from "../mcp/service";
+import { estimateTokens, getMemorySettings, helperModel, maybeCompact, memoryRecaller, messageTokens } from "../memory";
 import { evaluate, loadGrants, loadPolicies, resolveMode, type Policy } from "./permissions";
 import {
   appendStep, claimRun, getRun, heartbeat, insertMessage, saveRun, toMessageDTO, transition, STALE_LEASE_MS,
@@ -47,6 +48,8 @@ export interface AgentEnv {
   ai?: import("../providers/probe").AiBinding | null;
   /** Override model resolution (tests). */
   resolveModel?: (modelRowId: string) => Promise<ResolvedModel>;
+  /** Called (fire-and-forget) when a run completes normally — auto memory extraction (M10). */
+  onCompleted?: (runId: string) => void;
 }
 
 export interface SegmentBudget {
@@ -281,6 +284,13 @@ async function segmentBody(
     await saveRun(db, runId, { status, finishedAt: new Date(), checkpoint: cp, error: error ?? null, stepCount });
     await appendStep(db, runId, "done", { status, reason, error });
     emit({ type: "done", status, reason });
+    if (status === "completed") {
+      try {
+        env.onCompleted?.(runId);
+      } catch {
+        /* never affects the run */
+      }
+    }
     return { status, reason };
   };
 
@@ -305,6 +315,12 @@ async function segmentBody(
 
   let modelStepsThisSegment = 0;
   const fileCache = new Map<string, Part>();
+  let lastInputTokens = 0;
+  const memSettings = await getMemorySettings(db);
+  const hooks: ContextHooks = {
+    ...env.hooks,
+    memoriesSection: env.hooks?.memoriesSection ?? memoryRecaller({ database: db, encKey: env.encKey, fetch: env.fetch ?? ((...a) => fetch(...a)), runId }),
+  };
 
   for (;;) {
     if (stopSignal.aborted) return finalizeStopped();
@@ -454,9 +470,29 @@ async function segmentBody(
     }
 
     // ---------- 3. model step ----------
-    const ctx = await assembleContext(db, conversationId, cp.leafId, env.hooks);
-    if (env.storage) ctx.messages = await resolveFileParts(env.storage, ctx.messages, fileCache);
+    let ctx = await assembleContext(db, conversationId, cp.leafId, hooks);
     const tools = registry.defs((t) => toolAvailable(t) && (mode === "plan" ? t.risk === "read" : true));
+    // Compaction (M10): summarize older turns when the prompt nears the model's context window.
+    {
+      const fixed = estimateTokens(ctx.system) + estimateTokens(JSON.stringify(tools));
+      const est = fixed + ctx.messages.reduce((n, m) => n + messageTokens(m), 0);
+      const slack = Math.max(0, lastInputTokens - est); // provider-reported size beats the estimate
+      const window = model.contextLength ?? memSettings.compaction.defaultContextTokens;
+      if (memSettings.compaction.enabled && est + slack > window * memSettings.compaction.threshold) {
+        try {
+          const helper = memSettings.helperModelId ? await helperModel(db, env.encKey, env.fetch, null) : null;
+          const r = await maybeCompact(db, conversationId, cp.leafId, model, { systemTokens: fixed + slack, signal: workSignal, helper });
+          if (r.compacted) {
+            await appendStep(db, runId, "compacted", { summarizedMessages: r.summarizedMessages });
+            ctx = await assembleContext(db, conversationId, cp.leafId, hooks);
+          }
+        } catch (e) {
+          if (workSignal.aborted) return stopSignal.aborted ? finalizeStopped() : pause("deadline");
+          await appendStep(db, runId, "compaction_failed", { error: (e as Error).message });
+        }
+      }
+    }
+    if (env.storage) ctx.messages = await resolveFileParts(env.storage, ctx.messages, fileCache);
     const req: ChatRequest = {
       model: model.model,
       system: ctx.system,
@@ -487,6 +523,7 @@ async function segmentBody(
     }
 
     if (b.usage) {
+      lastInputTokens = b.usage.inputTokens ?? 0;
       await db.db.insert(usageLogs).values({
         providerId: model.providerId, model: model.model, runId, kind: "chat",
         inputTokens: b.usage.inputTokens, outputTokens: b.usage.outputTokens, cachedTokens: b.usage.cachedInputTokens ?? null,

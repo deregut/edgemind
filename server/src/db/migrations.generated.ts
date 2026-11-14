@@ -137,5 +137,13 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "CREATE UNIQUE INDEX \"mcp_servers_prefix_uq\" ON \"mcp_servers\" USING btree (\"tool_prefix\");",
    "CREATE INDEX \"mcp_servers_oauth_state_idx\" ON \"mcp_servers\" USING btree (\"oauth_state\");"
   ]
+ },
+ {
+  "tag": "0006_sleepy_gunslinger",
+  "hash": "74a86ed27cd31399444319fc2d24e1e7151eae9253d1d2cd42de015b59550d31",
+  "statements": [
+   "ALTER TABLE \"conversations\" ADD COLUMN \"summary_up_to\" uuid;",
+   "ALTER TABLE \"conversations\" ADD COLUMN \"summary_updated_at\" timestamp with time zone;"
+  ]
  }
 ];

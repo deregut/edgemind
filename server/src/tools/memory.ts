@@ -36,13 +36,13 @@ export async function resolveEmbedder(database: Database, encKey: Uint8Array): P
   return { providerId: pick.p.id, model, target: { type: "embedding", kind: pick.p.kind, baseUrl: pick.p.baseUrl, apiKey, config: pick.p.config ?? {} } };
 }
 
-async function embedOne(ctx: ToolContext, e: Embedder, text: string, inputType: "document" | "query"): Promise<number[]> {
+async function embedOne(ctx: Pick<ToolContext, "database" | "fetch"> & { runId?: string | null }, e: Embedder, text: string, inputType: "document" | "query"): Promise<number[]> {
   const [v] = await embedTexts(ctx.fetch, e.target, e.model, [text], inputType);
-  await ctx.database.db.insert(usageLogs).values({ providerId: e.providerId, model: e.model, runId: ctx.runId, kind: "embedding" }).catch(() => {});
+  await ctx.database.db.insert(usageLogs).values({ providerId: e.providerId, model: e.model, runId: ctx.runId ?? null, kind: "embedding" }).catch(() => {});
   return v;
 }
 
-function visible(ctx: ToolContext): SQL {
+function visible(ctx: { projectId: string | null; conversationId: string }): SQL {
   return or(
     eq(memories.scope, "global"),
     ctx.projectId ? and(eq(memories.scope, "project"), eq(memories.projectId, ctx.projectId)) : sql`false`,
@@ -63,7 +63,7 @@ const out = (m: typeof memories.$inferSelect, score?: number) => ({
   id: m.id, scope: m.scope, content: m.content, updatedAt: m.updatedAt.toISOString(), ...(score !== undefined ? { score: Math.round(score * 1000) / 1000 } : {}),
 });
 
-async function embedFields(ctx: ToolContext, content: string): Promise<{ fields: Partial<typeof memories.$inferInsert>; note?: string }> {
+export async function embedFields(ctx: Pick<ToolContext, "database" | "fetch" | "encKey"> & { runId?: string | null }, content: string): Promise<{ fields: Partial<typeof memories.$inferInsert>; note?: string }> {
   const e = await resolveEmbedder(ctx.database, ctx.encKey).catch(() => null);
   if (!e) return { fields: { embedding: null, embeddingDim: null, embeddingModel: null } };
   try {
@@ -117,42 +117,65 @@ export const memorySearchTool: Tool = {
     const query = String(args?.query ?? "").trim();
     if (!query) throw new Error("query 不可為空");
     const limit = Math.min(20, Math.max(1, Number.isInteger(args?.limit) ? args.limit : 5));
-    const e = await resolveEmbedder(ctx.database, ctx.encKey).catch(() => null);
-    if (e) {
-      try {
-        const v = await embedOne(ctx, e, query, "query");
-        const params: unknown[] = [toVectorLiteral(v), limit, ctx.conversationId];
-        let where = `embedding_model = $4 AND (scope = 'global' OR (scope = 'conversation' AND conversation_id = $3)`;
-        params.push(e.model);
-        if (ctx.projectId) {
-          params.push(ctx.projectId);
-          where += ` OR (scope = 'project' AND project_id = $5)`;
-        }
-        where += ")";
-        const rows = await ctx.database.query<Record<string, any>>(nearestSql("memories", v.length, where), params);
-        if (rows.length) {
-          return {
-            mode: "vector",
-            results: rows.map((r) => ({ id: r.id, scope: r.scope, content: r.content, updatedAt: new Date(r.updated_at).toISOString(), score: Math.round((1 - Number(r.distance)) * 1000) / 1000 })),
-          };
-        }
-      } catch {
-        /* fall back to keywords */
-      }
-    }
-    // keyword fallback: whole query + individual terms, ranked by matches
-    const terms = [...new Set([query, ...query.split(/[\s,，。、;；:：!！?？]+/).filter((t) => t.length >= 2)])].slice(0, 8);
-    const esc = (t: string) => `%${t.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const score = sql.join(terms.map((t) => sql`(CASE WHEN ${memories.content} ILIKE ${esc(t)} THEN 1 ELSE 0 END)`), sql` + `);
-    const rows = await ctx.database.db
-      .select({ m: memories, score: sql<number>`(${score})::int` })
-      .from(memories)
-      .where(and(visible(ctx), or(...terms.map((t) => sql`${memories.content} ILIKE ${esc(t)}`))))
-      .orderBy(sql`(${score}) DESC`, sql`${memories.updatedAt} DESC`)
-      .limit(limit);
-    return { mode: "keyword", results: rows.map((r) => out(r.m)) };
+    return searchMemories(ctx, query, limit);
   },
 };
+
+export interface MemorySearchCtx {
+  database: Database;
+  encKey: Uint8Array;
+  fetch: typeof fetch;
+  conversationId: string;
+  projectId: string | null;
+  runId?: string | null;
+}
+
+export interface MemoryHit {
+  id: string;
+  scope: string;
+  content: string;
+  updatedAt: string;
+  score?: number;
+}
+
+/** Vector search over visible memories (global + project + conversation), keyword fallback. */
+export async function searchMemories(ctx: MemorySearchCtx, query: string, limit: number, opts: { minScore?: number; queryVector?: number[] | null } = {}): Promise<{ mode: "vector" | "keyword"; results: MemoryHit[] }> {
+  const e = await resolveEmbedder(ctx.database, ctx.encKey).catch(() => null);
+  if (e) {
+    try {
+      const v = opts.queryVector ?? (await embedOne(ctx, e, query, "query"));
+      const params: unknown[] = [toVectorLiteral(v), limit, ctx.conversationId];
+      let where = `embedding_model = $4 AND (scope = 'global' OR (scope = 'conversation' AND conversation_id = $3)`;
+      params.push(e.model);
+      if (ctx.projectId) {
+        params.push(ctx.projectId);
+        where += ` OR (scope = 'project' AND project_id = $5)`;
+      }
+      where += ")";
+      const rows = await ctx.database.query<Record<string, any>>(nearestSql("memories", v.length, where), params);
+      const hits = rows
+        .map((r) => ({ id: r.id, scope: r.scope, content: r.content, updatedAt: new Date(r.updated_at).toISOString(), score: Math.round((1 - Number(r.distance)) * 1000) / 1000 }))
+        .filter((h) => opts.minScore === undefined || h.score >= opts.minScore);
+      if (rows.length) return { mode: "vector", results: hits };
+    } catch {
+      /* fall back to keywords */
+    }
+  }
+  // keyword fallback: whole query + individual terms (CJK bigrams for long CJK runs), ranked by matches
+  const words = query.split(/[\s,，。、;；:：!！?？「」『』（）()]+/).filter((t) => t.length >= 2);
+  const bigrams = words.flatMap((w) => (/[\u3400-\u9fff]/.test(w) && w.length > 4 ? Array.from({ length: w.length - 1 }, (_, i) => w.slice(i, i + 2)) : []));
+  const terms = [...new Set([query.slice(0, 200), ...words, ...bigrams])].slice(0, 16);
+  const esc = (t: string) => `%${t.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+  const score = sql.join(terms.map((t) => sql`(CASE WHEN ${memories.content} ILIKE ${esc(t)} THEN 1 ELSE 0 END)`), sql` + `);
+  const minMatches = opts.minScore !== undefined ? Math.min(2, terms.length) : 1;
+  const rows = await ctx.database.db
+    .select({ m: memories, score: sql<number>`(${score})::int` })
+    .from(memories)
+    .where(and(visible(ctx), or(...terms.map((t) => sql`${memories.content} ILIKE ${esc(t)}`)), sql`(${score}) >= ${minMatches}`))
+    .orderBy(sql`(${score}) DESC`, sql`${memories.updatedAt} DESC`)
+    .limit(limit);
+  return { mode: "keyword", results: rows.map((r) => out(r.m)) };
+}
 
 export const memoryUpdateTool: Tool = {
   name: "memory_update",

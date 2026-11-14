@@ -135,6 +135,9 @@ export const conversations = pgTable("conversations", {
   archived: boolean("archived").notNull().default(false),
   /** Rolling summary for compaction. */
   summary: text("summary"),
+  /** Last message (inclusive) covered by `summary`; only applies while that message is on the active branch. */
+  summaryUpTo: uuid("summary_up_to"),
+  summaryUpdatedAt: timestamp("summary_updated_at", { withTimezone: true }),
   /** The leaf message of the active branch. */
   activeLeafId: uuid("active_leaf_id"),
   /** The model's own task list (todo tool). */

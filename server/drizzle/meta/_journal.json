@@ -43,6 +43,13 @@
       "when": 1794665292957,
       "tag": "0005_sudden_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794665847097,
+      "tag": "0006_sleepy_gunslinger",
+      "breakpoints": true
     }
   ]
 }

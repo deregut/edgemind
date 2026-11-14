@@ -118,3 +118,53 @@ export interface McpSyncResponse {
   needsAuth?: boolean;
   error?: string;
 }
+
+// ---------------- Memory & compaction (M10) ----------------
+
+export type MemoryScope = "global" | "project" | "conversation";
+
+export interface MemoryDTO {
+  id: string;
+  scope: MemoryScope;
+  projectId: string | null;
+  conversationId: string | null;
+  content: string;
+  source: "tool" | "auto" | "user";
+  /** Embedding model used, null = keyword-only. */
+  embeddingModel: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemorySettingsDTO {
+  /** Inject the top-K relevant memories into every turn. */
+  autoRecall: boolean;
+  recallK: number;
+  /** Minimum cosine similarity for auto recall (vector mode). */
+  minScore: number;
+  /** Extract durable facts from each finished exchange with an LLM. */
+  autoExtract: boolean;
+  /** Model for extraction and compaction summaries (null = the conversation's model). */
+  helperModelId: string | null;
+  /** Embedding model row id used for memories (null = first enabled embedding provider). */
+  embeddingModelId: string | null;
+  compaction: {
+    enabled: boolean;
+    /** Compact when the prompt exceeds this share of the model's context window. */
+    threshold: number;
+    /** Context window assumed when the model has none configured. */
+    defaultContextTokens: number;
+    /** Share of the window kept verbatim (most recent turns). */
+    keepRecentRatio: number;
+  };
+}
+
+export const DEFAULT_MEMORY_SETTINGS: MemorySettingsDTO = {
+  autoRecall: true,
+  recallK: 5,
+  minScore: 0.35,
+  autoExtract: true,
+  helperModelId: null,
+  embeddingModelId: null,
+  compaction: { enabled: true, threshold: 0.7, defaultContextTokens: 128_000, keepRecentRatio: 0.25 },
+};
