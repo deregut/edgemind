@@ -5,6 +5,9 @@ import { decodeKey32, validateEnv, type EnvValidation } from "./env";
 import { migrate } from "./db/migrate";
 import type { Database } from "./db/client";
 import { APP_VERSION } from "./version";
+import { BadInput } from "./lib/errors";
+import { mountAuth, isAuthenticated, ensureCsrfCookie } from "./routes/auth";
+import { mountProviders } from "./routes/providers";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -23,6 +26,7 @@ export function createApp(deps: AppDeps) {
   const app = new Hono<HonoEnv>().basePath("/api");
 
   app.onError((err, c) => {
+    if (err instanceof BadInput) return c.json({ error: "bad_request", message: err.message }, 400);
     console.error("[edgemind]", err);
     return c.json({ error: "internal_error", message: err.message }, 500);
   });
@@ -54,9 +58,11 @@ export function createApp(deps: AppDeps) {
       const rows = await database.query<{ n: number }>("SELECT count(*)::int AS n FROM users");
       body.db = { ok: true, migrated: true };
       body.setupRequired = rows[0].n === 0;
+      body.authenticated = !body.setupRequired && (await isAuthenticated(c, v.env, database));
     } catch (e) {
       body.db = { ok: false, error: (e as Error).message };
     }
+    ensureCsrfCookie(c);
     return c.json(body);
   });
 
@@ -72,8 +78,12 @@ export function createApp(deps: AppDeps) {
     await next();
   });
 
-
   app.get("/health", (c) => c.json({ ok: true, platform: deps.platform?.name ?? "unknown" }));
+
+
+  mountAuth(app);
+  mountProviders(app, deps);
+
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;
 }

@@ -59,3 +59,30 @@ export function testEnv(url: string): AppEnv & Record<string, string> {
     JWT_SECRET: "x".repeat(40),
   };
 }
+
+/** Minimal browser-like client: cookie jar + automatic CSRF header, against app.request(). */
+export class TestClient {
+  cookies = new Map<string, string>();
+  constructor(private app: { request: (path: string, init: RequestInit, env: Record<string, unknown>) => Response | Promise<Response> }, private env: Record<string, unknown>, public ip = "1.2.3.4") {}
+  async req(method: string, path: string, body?: unknown, opts: { csrf?: boolean; headers?: Record<string, string> } = {}) {
+    const headers: Record<string, string> = { "x-forwarded-for": this.ip, ...opts.headers };
+    if (this.cookies.size) headers.cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; ");
+    if (opts.csrf !== false && this.cookies.has("em_csrf")) headers["x-csrf-token"] = this.cookies.get("em_csrf")!;
+    if (body !== undefined) headers["content-type"] = "application/json";
+    const res = await this.app.request(`http://localhost/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }, this.env);
+    for (const sc of res.headers.getSetCookie()) {
+      const [pair, ...attrs] = sc.split(";");
+      const i = pair.indexOf("=");
+      const k = pair.slice(0, i).trim();
+      const v = pair.slice(i + 1).trim();
+      if (!v || attrs.some((a) => /max-age=0/i.test(a))) this.cookies.delete(k);
+      else this.cookies.set(k, v);
+    }
+    const text = await res.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { json = text; }
+    return { status: res.status, body: json, headers: res.headers };
+  }
+  get = (p: string) => this.req("GET", p);
+  post = (p: string, b?: unknown, o?: { csrf?: boolean; headers?: Record<string, string> }) => this.req("POST", p, b ?? {}, o);
+}

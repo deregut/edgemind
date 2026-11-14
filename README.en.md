@@ -4,7 +4,7 @@ English ｜ [正體中文](README.md)
 
 A single-user, self-hosted, serverless AI agent workspace: chat, projects, files, knowledge base, memory, Skills, MCP, web search and built-in tools, with every model and search provider configurable.
 
-> 🚧 Work in progress. Done so far: M1 scaffold.
+> 🚧 Work in progress. Done so far: M1 scaffold, M2 single-user auth + provider settings (LLM / search / embedding / rerank / image, model listing, connection tests).
 
 ## Highlights
 

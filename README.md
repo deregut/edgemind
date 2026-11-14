@@ -4,7 +4,7 @@
 
 單人自用、Serverless 的 AI Agent 工作台：聊天、專案、檔案、知識庫、記憶、Skills、MCP、網頁搜尋與內建工具，所有模型與搜尋供應商都可自訂。
 
-> 🚧 開發中。目前完成：M1 專案骨架。
+> 🚧 開發中。目前完成：M1 專案骨架、M2 單人登入與供應商設定（LLM／搜尋／Embedding／Rerank／圖片，含模型清單與連線測試）。
 
 ## 特色
 
@@ -68,6 +68,14 @@ npx wrangler pages deploy
 在 Pages 專案 Settings → Variables and Secrets 填入同樣 8 個變數。
 
 （完整部署指南將於 M12 補上。）
+
+## 安全設計
+
+- 單一管理密碼：PBKDF2-SHA256（100,000 次，Cloudflare Workers 的 WebCrypto 上限）
+- 登入狀態：JWT 存於 HttpOnly + SameSite=Strict Cookie，每個 JWT 對應資料庫中的 session，可登出撤銷；變更密碼會讓其他裝置全部失效
+- CSRF：double-submit token（`X-CSRF-Token` 標頭）＋ Origin 檢查
+- 登入速率限制：同一 IP 15 分鐘內失敗 5 次即暫停；全站 15 分鐘內失敗 30 次也會暫停
+- API Key：AES-256-GCM 加密（以供應商 ID 作為 AAD），API 只回傳遮罩後的預覽
 
 ## 本機開發
 
