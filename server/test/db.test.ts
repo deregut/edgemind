@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import { toTsqueryLiteral, toTsvectorLiteral } from "../src/lib/textsearch";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDatabase } from "./helpers";
 import { migrate, pendingMigrations } from "../src/db/migrate";
@@ -30,7 +32,7 @@ describe("migrations + schema", () => {
   it("stores mixed-dimension vectors and searches per-dimension with HNSW + tsvector", async () => {
     const [col] = await database.db.insert(kbCollections).values({ name: "c" }).returning();
     await database.db.insert(kbChunks).values([
-      { collectionId: col.id, chunkIndex: 0, content: "apple banana", embedding: [1, 0, 0], embeddingDim: 3, embeddingModel: "m3" },
+      { collectionId: col.id, chunkIndex: 0, content: "apple banana", embedding: [1, 0, 0], embeddingDim: 3, embeddingModel: "m3", tsv: sql`${toTsvectorLiteral("apple banana")}::tsvector` as unknown as string },
       { collectionId: col.id, chunkIndex: 1, content: "cherry", embedding: [0, 1, 0], embeddingDim: 3, embeddingModel: "m3" },
       { collectionId: col.id, chunkIndex: 2, content: "durian", embedding: [0, 0, 0, 1], embeddingDim: 4, embeddingModel: "m4" },
     ]);
@@ -41,7 +43,7 @@ describe("migrations + schema", () => {
     expect(idx.map((r) => r.indexname)).toEqual(expect.arrayContaining([vectorIndexName("kb_chunks", 3), vectorIndexName("kb_chunks", 3072)]));
     const rows = await database.query<{ content: string }>(nearestSql("kb_chunks", 3), [toVectorLiteral([0.9, 0.1, 0]), 2]);
     expect(rows.map((r) => r.content)).toEqual(["apple banana", "cherry"]);
-    const fts = await database.query<{ content: string }>("SELECT content FROM kb_chunks WHERE tsv @@ plainto_tsquery('simple', $1)", ["banana"]);
+    const fts = await database.query<{ content: string }>("SELECT content FROM kb_chunks WHERE tsv @@ $1::tsquery", [toTsqueryLiteral("banana", "or")]);
     expect(fts).toHaveLength(1);
   });
 });

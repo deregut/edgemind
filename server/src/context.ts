@@ -14,6 +14,11 @@ export interface Platform {
    * Default: run in-process via waitUntil (fine for Node / tests).
    */
   startBackground?(args: { origin: string; runId: string; token: string; c: Ctx }): Promise<void>;
+  /**
+   * Start a generic internal background job (e.g. knowledge-base indexing) at `path` (under /api/internal/,
+   * HMAC token in x-edgemind-drive). Default: run in-process via waitUntil.
+   */
+  startInternal?(args: { origin: string; path: string; token: string; c: Ctx }): Promise<void>;
   /** When true, the internal drive endpoint runs the run inline (Netlify background function). */
   driveInline?: boolean;
 }

@@ -157,8 +157,10 @@ export const messages = pgTable("messages", {
   runId: uuid("run_id"),
   /** Plain text copy for full-text search. */
   searchText: text("search_text"),
+  /** App-tokenized tsvector of search_text (CJK bigrams), see lib/textsearch.ts. Null = not yet backfilled. */
+  searchTsv: tsvector("search_tsv"),
   createdAt: createdAt(),
-}, (t) => [index("messages_conversation_idx").on(t.conversationId, t.createdAt), index("messages_parent_idx").on(t.parentId)]);
+}, (t) => [index("messages_conversation_idx").on(t.conversationId, t.createdAt), index("messages_parent_idx").on(t.parentId), index("messages_search_tsv_idx").using("gin", t.searchTsv)]);
 
 // ---------- runs (agent loop persistence) ----------
 
@@ -245,27 +247,55 @@ export const kbCollections = pgTable("kb_collections", {
   description: text("description"),
   embeddingProviderId: uuid("embedding_provider_id").references(() => providers.id, { onDelete: "set null" }),
   embeddingModel: text("embedding_model"),
+  /** Actual vector dimension (detected with a probe embedding when the model is set). */
   embeddingDim: integer("embedding_dim"),
-  /** idle | reindexing | error */
+  /** Output dimension requested from the provider (Matryoshka models); null = model default. */
+  requestedDim: integer("requested_dim"),
+  rerankProviderId: uuid("rerank_provider_id").references(() => providers.id, { onDelete: "set null" }),
+  rerankModel: text("rerank_model"),
+  chunkSize: integer("chunk_size").notNull().default(1000),
+  chunkOverlap: integer("chunk_overlap").notNull().default(150),
+  /** idle | indexing | reindexing | error */
   indexStatus: text("index_status").notNull().default("idle"),
+  indexError: text("index_error"),
+  /** Embedding worker lease (one worker per collection; stale leases are taken over). */
+  indexLeaseUntil: timestamp("index_lease_until", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, (t) => [index("kb_collections_project_idx").on(t.projectId)]);
+
+export const kbDocuments = pgTable("kb_documents", {
+  id: id(),
+  collectionId: uuid("collection_id").notNull().references(() => kbCollections.id, { onDelete: "cascade" }),
+  fileId: uuid("file_id").references(() => files.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  mime: text("mime"),
+  size: bigint("size", { mode: "number" }).notNull().default(0),
+  /** uploading | parsing | ready | error */
+  status: text("status").notNull().default("uploading"),
+  error: text("error"),
+  chunkCount: integer("chunk_count").notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("kb_documents_collection_idx").on(t.collectionId)]);
 
 export const kbChunks = pgTable("kb_chunks", {
   id: id(),
   collectionId: uuid("collection_id").notNull().references(() => kbCollections.id, { onDelete: "cascade" }),
-  fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id").references(() => kbDocuments.id, { onDelete: "cascade" }),
+  fileId: uuid("file_id").references(() => files.id, { onDelete: "set null" }),
   chunkIndex: integer("chunk_index").notNull(),
   content: text("content").notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   embedding: vector("embedding"),
   embeddingDim: integer("embedding_dim"),
   embeddingModel: text("embedding_model"),
-  tsv: tsvector("tsv").generatedAlwaysAs(sql`to_tsvector('simple', content)`),
+  /** App-tokenized (CJK bigrams + words) tsvector literal, see lib/textsearch.ts. */
+  tsv: tsvector("tsv"),
   createdAt: createdAt(),
 }, (t) => [
   index("kb_chunks_collection_idx").on(t.collectionId),
+  uniqueIndex("kb_chunks_document_chunk_uq").on(t.documentId, t.chunkIndex),
   index("kb_chunks_tsv_idx").using("gin", t.tsv),
 ]);
 

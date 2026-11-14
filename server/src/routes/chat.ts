@@ -17,6 +17,7 @@ import { runInBackground } from "../context";
 import { auditLogs, conversations, messages, models, projects, providers, runSteps, runs, settings, toolApprovals } from "../db/schema";
 import { BadInput } from "../lib/errors";
 import { hmacHex, timingSafeEqual } from "../lib/crypto";
+import { aiBinding } from "./kb";
 import { abortLocalRun, closeStoppedRun, driveRun, pendingApprovals, runSegment, type AgentEnv } from "../agent/loop";
 import { appendStep, getRun, insertMessage, STALE_LEASE_MS, toMessageDTO, transition, type Checkpoint, type RunOptions } from "../agent/store";
 import { builtinRegistry } from "../agent/tools";
@@ -122,6 +123,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     registry,
     fetch: deps.fetch,
     storage: fileStore(c, deps),
+    ai: aiBinding(c),
     ...deps.agent,
   });
 

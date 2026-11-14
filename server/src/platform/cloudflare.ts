@@ -28,6 +28,10 @@ const app = createApp({
       const res = await fetch(`${origin}/api/internal/runs/${encodeURIComponent(runId)}/drive`, { method: "POST", headers: { "x-edgemind-drive": token } });
       if (res.status >= 400) throw new Error(`無法啟動背景執行（HTTP ${res.status}）`);
     },
+    async startInternal({ origin, path, token }) {
+      const res = await fetch(`${origin}${path}`, { method: "POST", headers: { "x-edgemind-drive": token } });
+      if (res.status >= 400) throw new Error(`無法啟動背景工作（HTTP ${res.status}）`);
+    },
   },
 });
 

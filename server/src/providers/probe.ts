@@ -22,6 +22,8 @@ export class ProviderHttpError extends Error {
 }
 
 const TIMEOUT_MS = 15_000;
+/** Batch embedding / rerank calls. */
+const LONG_TIMEOUT_MS = 30_000;
 
 export function trimSlash(u: string) {
   return u.replace(/\/+$/, "");
@@ -37,10 +39,10 @@ function baseOf(t: ProbeTarget): string {
   return b;
 }
 
-async function call(f: Fetch, url: string, init: RequestInit, secret: string | null): Promise<any> {
+async function call(f: Fetch, url: string, init: RequestInit, secret: string | null, timeoutMs = TIMEOUT_MS): Promise<any> {
   let res: Response;
   try {
-    res = await f(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    res = await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     throw new ProviderHttpError(0, `無法連線：${(e as Error).message}`);
   }
@@ -172,43 +174,93 @@ async function searchOnce(f: Fetch, t: ProbeTarget, q: string): Promise<number> 
   throw new ProviderHttpError(0, "未知的搜尋供應商");
 }
 
+/** Cloudflare Workers AI binding (`env.AI` on Pages/Workers). */
+export interface AiBinding {
+  run(model: string, input: Record<string, unknown>): Promise<any>;
+}
+
+export interface EmbedOptions {
+  /** Requested output dimension (Matryoshka models). Ignored by providers that cannot truncate. */
+  dimensions?: number | null;
+  /** Workers AI binding: used instead of the REST API for kind workers_ai when present. */
+  ai?: AiBinding | null;
+}
+
 /** Embed a batch of texts with any supported embedding provider. */
-export async function embedTexts(f: Fetch, t: ProbeTarget, model: string, texts: string[], inputType: "document" | "query" = "document"): Promise<number[][]> {
-  const b = baseOf(t);
+export async function embedTexts(f: Fetch, t: ProbeTarget, model: string, texts: string[], inputType: "document" | "query" = "document", o: EmbedOptions = {}): Promise<number[][]> {
+  const dims = o.dimensions && o.dimensions > 0 ? o.dimensions : undefined;
   let vecs: unknown;
-  switch (t.kind) {
-    case "gemini": {
-      const base = root(b, /\/v1(beta)?$/);
-      const name = model.startsWith("models/") ? model : `models/${model}`;
-      const taskType = inputType === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
-      const d = await call(f, `${base}/v1beta/${name}:batchEmbedContents`, json({ requests: texts.map((text) => ({ model: name, content: { parts: [{ text }] }, taskType })) }, geminiHeaders(t.apiKey)), t.apiKey);
-      vecs = d.embeddings?.map((e: any) => e.values);
-      break;
-    }
-    case "cohere": {
-      const d = await call(f, `${root(b, /\/v[12]$/)}/v2/embed`, json({ model, texts, input_type: inputType === "query" ? "search_query" : "search_document", embedding_types: ["float"] }, bearer(t.apiKey)), t.apiKey);
-      vecs = d.embeddings?.float;
-      break;
-    }
-    case "workers_ai": {
-      if (!t.config.accountId) throw new ProviderHttpError(0, "缺少 Cloudflare Account ID");
-      const d = await call(f, `${b}/accounts/${encodeURIComponent(t.config.accountId)}/ai/run/${model}`, json({ text: texts }, bearer(t.apiKey)), t.apiKey);
-      vecs = d.result?.data;
-      break;
-    }
-    case "voyage": {
-      const d = await call(f, `${b}/embeddings`, json({ model, input: texts, input_type: inputType }, bearer(t.apiKey)), t.apiKey);
-      vecs = d.data?.map((x: any) => x.embedding);
-      break;
-    }
-    default: {
-      // openai, openai_compatible, mistral, jina share the OpenAI embeddings shape
-      const d = await call(f, `${b}/embeddings`, json({ model, input: texts }, bearer(t.apiKey)), t.apiKey);
-      vecs = (d.data as any[] | undefined)?.slice().sort((x, y) => (x.index ?? 0) - (y.index ?? 0)).map((x) => x.embedding);
+  if (t.kind === "workers_ai" && o.ai && (!t.apiKey || t.config.useBinding === "true")) {
+    const d = await o.ai.run(model, { text: texts });
+    vecs = d?.data;
+  } else {
+    const b = baseOf(t);
+    switch (t.kind) {
+      case "gemini": {
+        const base = root(b, /\/v1(beta)?$/);
+        const name = model.startsWith("models/") ? model : `models/${model}`;
+        const taskType = inputType === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
+        const d = await call(f, `${base}/v1beta/${name}:batchEmbedContents`, json({ requests: texts.map((text) => ({ model: name, content: { parts: [{ text }] }, taskType, ...(dims ? { outputDimensionality: dims } : {}) })) }, geminiHeaders(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS);
+        vecs = d.embeddings?.map((e: any) => e.values);
+        break;
+      }
+      case "cohere": {
+        const d = await call(f, `${root(b, /\/v[12]$/)}/v2/embed`, json({ model, texts, input_type: inputType === "query" ? "search_query" : "search_document", embedding_types: ["float"], ...(dims ? { output_dimension: dims } : {}) }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS);
+        vecs = d.embeddings?.float;
+        break;
+      }
+      case "workers_ai": {
+        if (!t.config.accountId) throw new ProviderHttpError(0, "缺少 Cloudflare Account ID");
+        const d = await call(f, `${b}/accounts/${encodeURIComponent(t.config.accountId)}/ai/run/${model}`, json({ text: texts }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS);
+        vecs = d.result?.data;
+        break;
+      }
+      case "voyage": {
+        const d = await call(f, `${b}/embeddings`, json({ model, input: texts, input_type: inputType, ...(dims ? { output_dimension: dims } : {}) }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS);
+        vecs = d.data?.map((x: any) => x.embedding);
+        break;
+      }
+      default: {
+        // openai, openai_compatible, mistral, jina share the OpenAI embeddings shape
+        const extra: Record<string, unknown> = {};
+        if (t.kind === "jina") {
+          if (/v[34]/.test(model)) extra.task = inputType === "query" ? "retrieval.query" : "retrieval.passage";
+          if (dims) extra.dimensions = dims;
+        } else if (t.kind === "mistral") {
+          if (dims) extra.output_dimension = dims;
+        } else if (dims) extra.dimensions = dims;
+        const d = await call(f, `${b}/embeddings`, json({ model, input: texts, ...extra }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS);
+        vecs = (d.data as any[] | undefined)?.slice().sort((x, y) => (x.index ?? 0) - (y.index ?? 0)).map((x) => x.embedding);
+      }
     }
   }
   if (!Array.isArray(vecs) || vecs.length !== texts.length || !vecs.every((v) => Array.isArray(v) && v.length)) throw new ProviderHttpError(0, "回應中沒有 embedding 向量");
   return vecs as number[][];
+}
+
+export interface RerankResult {
+  index: number;
+  score: number;
+}
+
+/** Rerank documents for a query (Jina / Cohere / Voyage). Returns results sorted by score, best first. */
+export async function rerankDocuments(f: Fetch, t: ProbeTarget, model: string, query: string, documents: string[], topN?: number): Promise<RerankResult[]> {
+  if (!documents.length) return [];
+  const b = baseOf(t);
+  const n = Math.min(documents.length, topN ?? documents.length);
+  let raw: any[] | undefined;
+  if (t.kind === "cohere") {
+    raw = (await call(f, `${root(b, /\/v[12]$/)}/v2/rerank`, json({ model, query, documents, top_n: n }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS)).results;
+  } else if (t.kind === "voyage") {
+    raw = (await call(f, `${b}/rerank`, json({ model, query, documents, top_k: n }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS)).data;
+  } else {
+    raw = (await call(f, `${b}/rerank`, json({ model, query, documents, top_n: n, return_documents: false }, bearer(t.apiKey)), t.apiKey, LONG_TIMEOUT_MS)).results;
+  }
+  if (!Array.isArray(raw)) throw new ProviderHttpError(0, "回應中沒有 rerank 結果");
+  return raw
+    .map((r) => ({ index: Number(r.index), score: Number(r.relevance_score ?? r.score) }))
+    .filter((r) => Number.isInteger(r.index) && r.index >= 0 && r.index < documents.length && Number.isFinite(r.score))
+    .sort((a, b) => b.score - a.score);
 }
 
 /** Returns the embedding dimension. */

@@ -2,6 +2,7 @@
  * Context assembly (PLAN §4.1): system prompt → project instructions → enabled skills list (M8) →
  * recalled memories (M10) → conversation history along the active branch (compaction in M10).
  */
+import { attachedCollections } from "../rag/kb";
 import { asc, eq } from "drizzle-orm";
 import type { Message } from "@edgemind/shared";
 import type { Database } from "../db/client";
@@ -54,6 +55,13 @@ export async function assembleContext(database: Database, conversationId: string
   if (projectId) {
     const [p] = await database.db.select({ name: projects.name, instructions: projects.instructions }).from(projects).where(eq(projects.id, projectId)).limit(1);
     if (p?.instructions?.trim()) sections.push(`# 專案指示（${p.name}）\n${p.instructions.trim()}`);
+  }
+
+  // Knowledge bases auto-attached to this conversation (global + this project's), searched via kb_search.
+  const kbs = await attachedCollections(database, projectId).catch(() => []);
+  if (kbs.length) {
+    const lines = kbs.slice(0, 30).map((k) => `- ${k.name}${k.projectId ? "（本專案）" : ""}${k.description?.trim() ? `：${k.description.trim().slice(0, 200)}` : ""}`);
+    sections.push(`# 知識庫\n以下知識庫可用 kb_search 工具檢索；問題可能與其內容相關時先檢索，回答時以 [n] 標註引用並列出來源檔名。\n${lines.join("\n")}`);
   }
 
   const branch = await loadBranch(database, conversationId, leafId);

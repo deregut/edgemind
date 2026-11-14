@@ -33,24 +33,37 @@ const startBackground: NonNullable<Platform["startBackground"]> = async ({ origi
   if (res.status >= 400) throw new Error(`無法啟動背景執行（HTTP ${res.status}）`);
 };
 
+/** Generic internal jobs (KB indexing) also run in the background function: body { path }. */
+const startInternal: NonNullable<Platform["startInternal"]> = async ({ origin, path, token }) => {
+  const res = await fetch(`${origin}/.netlify/functions/agent-background`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-edgemind-drive": token },
+    body: JSON.stringify({ path }),
+  });
+  if (res.status >= 400) throw new Error(`無法啟動背景工作（HTTP ${res.status}）`);
+};
+
 const app = createApp({
   getDatabase: (env) => createNeonDatabase(env.DATABASE_URL),
-  platform: { name: "netlify", segment: { softMs: 50_000, hardMs: 57_000 }, startBackground },
+  platform: { name: "netlify", segment: { softMs: 50_000, hardMs: 57_000 }, startBackground, startInternal },
 });
 
 /** Same app, configured to drive runs inline with the background-function budget. */
 const backgroundApp = createApp({
   getDatabase: (env) => createNeonDatabase(env.DATABASE_URL),
-  platform: { name: "netlify", background: { softMs: 13 * 60_000, hardMs: 14 * 60_000 + 30_000 }, driveInline: true, startBackground },
+  platform: { name: "netlify", background: { softMs: 13 * 60_000, hardMs: 14 * 60_000 + 30_000 }, driveInline: true, startBackground, startInternal },
 });
 
-/** Entry of netlify/functions/agent-background.ts (body: { runId }, header x-edgemind-drive). */
+/** Entry of netlify/functions/agent-background.ts (body: { runId } | { path }, header x-edgemind-drive). */
 export async function handleNetlifyBackground(req: Request, context: NetlifyContext): Promise<Response> {
   envObj ??= readEnv();
-  const body = (await req.json().catch(() => null)) as { runId?: string } | null;
+  const body = (await req.json().catch(() => null)) as { runId?: string; path?: string } | null;
   const runId = typeof body?.runId === "string" ? body.runId : "";
   const origin = new URL(req.url).origin;
-  const inner = new Request(`${origin}/api/internal/runs/${encodeURIComponent(runId)}/drive`, {
+  const path = typeof body?.path === "string" && /^\/api\/internal\/[\w\-/]+$/.test(body.path) && !body.path.includes("..")
+    ? body.path
+    : `/api/internal/runs/${encodeURIComponent(runId)}/drive`;
+  const inner = new Request(`${origin}${path}`, {
     method: "POST",
     headers: { "x-edgemind-drive": req.headers.get("x-edgemind-drive") ?? "" },
   });

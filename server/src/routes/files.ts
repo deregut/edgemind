@@ -38,30 +38,49 @@ export function partPlan(size: number): { partSize: number; count: number } {
   return { partSize, count: Math.max(1, Math.ceil(size / partSize)) };
 }
 
-const safeName = (n: string) => n.replace(/[\\/\x00-\x1f]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "file";
+/** Make sure the bucket allows browser PUT/GET from this origin (idempotent, remembered in settings). */
+export async function ensureCors(c: Ctx, deps: AppDeps, origin: string, force = false): Promise<{ applied: boolean; origins: string[]; error?: string }> {
+  const database = c.get("database");
+  const known = (await getSetting<string[]>(database, "s3_cors_origins")) ?? [];
+  if (!force && known.includes(origin)) return { applied: false, origins: known };
+  const origins = [...new Set([...known, origin])];
+  try {
+    await s3For(c, deps).putBucketCors(origins);
+    await setSetting(database, "s3_cors_origins", origins);
+    return { applied: true, origins };
+  } catch (e) {
+    return { applied: false, origins: known, error: (e as Error).message };
+  }
+}
+
+export const originOf = (c: Ctx, explicit?: unknown) => {
+  if (typeof explicit === "string" && /^https?:\/\/[^/]+$/.test(explicit)) return explicit;
+  const o = c.req.header("origin");
+  return o && /^https?:\/\/[^/]+$/.test(o) ? o : new URL(c.req.url).origin;
+};
+
+
+/** Presigned single PUT (≤32 MB) or multipart part URLs for a pending files row; applies bucket CORS first. */
+export async function issueUploadTicket(c: Ctx, deps: AppDeps, row: typeof files.$inferSelect, size: number): Promise<UploadTicket & { corsWarning?: string }> {
+  const cors = await ensureCors(c, deps, originOf(c));
+  const s3 = s3For(c, deps);
+  let ticket: UploadTicket;
+  if (size <= SINGLE_PUT_MAX) {
+    ticket = { fileId: row.id, method: "put", url: await s3.presign("PUT", row.s3Key, 3600), headers: { "content-type": row.mime ?? "application/octet-stream" } };
+  } else {
+    const uploadId = await s3.createMultipart(row.s3Key, row.mime ?? "application/octet-stream");
+    await c.get("database").db.update(files).set({ uploadId }).where(eq(files.id, row.id));
+    const { partSize, count } = partPlan(size);
+    const parts = await Promise.all(Array.from({ length: count }, (_, i) => s3.presignPart(row.s3Key, uploadId, i + 1).then((url) => ({ partNumber: i + 1, url }))));
+    ticket = { fileId: row.id, method: "multipart", partSize, parts };
+  }
+  return { ...ticket, ...(cors.error ? { corsWarning: `無法自動設定 Bucket CORS：${cors.error}` } : {}) };
+}
+
+export const safeName = (n: string) => n.replace(/[\\/\x00-\x1f]/g, "_").replace(/^\.+/, "_").slice(0, 200) || "file";
 
 export function mountFiles(app: Hono<HonoEnv>, deps: AppDeps) {
-  /** Make sure the bucket allows browser PUT/GET from this origin (idempotent, remembered in settings). */
-  async function ensureCors(c: Ctx, origin: string, force = false): Promise<{ applied: boolean; origins: string[]; error?: string }> {
-    const database = c.get("database");
-    const known = (await getSetting<string[]>(database, "s3_cors_origins")) ?? [];
-    if (!force && known.includes(origin)) return { applied: false, origins: known };
-    const origins = [...new Set([...known, origin])];
-    try {
-      await s3For(c, deps).putBucketCors(origins);
-      await setSetting(database, "s3_cors_origins", origins);
-      return { applied: true, origins };
-    } catch (e) {
-      return { applied: false, origins: known, error: (e as Error).message };
-    }
-  }
-
-  const originOf = (c: Ctx, explicit?: unknown) => {
-    if (typeof explicit === "string" && /^https?:\/\/[^/]+$/.test(explicit)) return explicit;
-    const o = c.req.header("origin");
-    return o && /^https?:\/\/[^/]+$/.test(o) ? o : new URL(c.req.url).origin;
-  };
-
+  const ensureCorsLocal = (c: Ctx, origin: string, force = false) => ensureCors(c, deps, origin, force);
   app.post("/uploads", async (c) => {
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") throw new BadInput("請求格式錯誤");
@@ -83,7 +102,6 @@ export function mountFiles(app: Hono<HonoEnv>, deps: AppDeps) {
       projectId = p.id;
     }
     const conversationId = isUuid(body.conversationId) ? body.conversationId : null;
-    const cors = await ensureCors(c, originOf(c));
 
     let row: typeof files.$inferSelect;
     if (scope === "project") {
@@ -108,17 +126,7 @@ export function mountFiles(app: Hono<HonoEnv>, deps: AppDeps) {
       }).returning();
     }
 
-    let ticket: UploadTicket;
-    if (size <= SINGLE_PUT_MAX) {
-      ticket = { fileId: row.id, method: "put", url: await s3.presign("PUT", row.s3Key, 3600), headers: { "content-type": row.mime ?? "application/octet-stream" } };
-    } else {
-      const uploadId = await s3.createMultipart(row.s3Key, row.mime ?? "application/octet-stream");
-      await db.update(files).set({ uploadId }).where(eq(files.id, row.id));
-      const { partSize, count } = partPlan(size);
-      const parts = await Promise.all(Array.from({ length: count }, (_, i) => s3.presignPart(row.s3Key, uploadId, i + 1).then((url) => ({ partNumber: i + 1, url }))));
-      ticket = { fileId: row.id, method: "multipart", partSize, parts };
-    }
-    return c.json({ ...ticket, ...(cors.error ? { corsWarning: `無法自動設定 Bucket CORS：${cors.error}` } : {}) }, 201);
+    return c.json(await issueUploadTicket(c, deps, row, size), 201);
   });
 
   async function rowOr404(c: Ctx, id: string) {
@@ -220,7 +228,7 @@ export function mountFiles(app: Hono<HonoEnv>, deps: AppDeps) {
 
   app.post("/storage/cors", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const r = await ensureCors(c, originOf(c, body?.origin), true);
+    const r = await ensureCorsLocal(c, originOf(c, body?.origin), true);
     if (r.error) return c.json({ ok: false, error: "cors_failed", message: `設定 Bucket CORS 失敗：${r.error}` }, 502);
     return c.json({ ok: true, origins: r.origins });
   });

@@ -17,6 +17,8 @@ import type { AgentSettingsDTO, ConversationDTO, ModelOptionDTO, Part, Permissio
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { conversations, messages, models, projects, providers } from "../db/schema";
 import { BadInput } from "../lib/errors";
+import type { Database } from "../db/client";
+import { queryTerms, toTsqueryLiteral, toTsvectorLiteral } from "../lib/textsearch";
 import { DEFAULT_FULL_CAPS, DEFAULT_MAX_STEPS, getSetting, normalizeCaps, setSetting } from "../lib/settings";
 import { isPermissionMode } from "../agent/permissions";
 import { builtinRegistry } from "../agent/tools";
@@ -58,10 +60,36 @@ const projDTO = (r: ProjRow, conversationCount?: number): ProjectDTO => ({
   ...(conversationCount !== undefined ? { conversationCount } : {}),
 });
 
+/** Messages written before search_tsv existed get their tsvector computed lazily (bounded work per search). */
+async function backfillMessageTsv(database: Database) {
+  for (let round = 0; round < 4; round++) {
+    const rows = await database.query<{ id: string; search_text: string }>(
+      `SELECT id, search_text FROM messages WHERE search_tsv IS NULL AND search_text IS NOT NULL LIMIT 500`,
+    );
+    if (!rows.length) return;
+    await database.query(
+      `UPDATE messages AS m SET search_tsv = v.t::tsvector FROM unnest($1::uuid[], $2::text[]) AS v(id, t) WHERE m.id = v.id`,
+      [rows.map((r) => r.id), rows.map((r) => toTsvectorLiteral(r.search_text))],
+    );
+    if (rows.length < 500) return;
+  }
+}
+
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
 
 function snippetAround(text: string, q: string, radius = 40): string {
-  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  const lower = text.toLowerCase();
+  let i = lower.indexOf(q.toLowerCase());
+  if (i < 0) {
+    // token match (CJK bigrams / words need not be contiguous): centre on the first matching term
+    for (const t of queryTerms(q)) {
+      i = lower.indexOf(t.term);
+      if (i >= 0) {
+        q = t.term;
+        break;
+      }
+    }
+  }
   if (i < 0) return text.slice(0, radius * 2);
   const s = Math.max(0, i - radius);
   return `${s > 0 ? "…" : ""}${text.slice(s, i + q.length + radius)}${i + q.length + radius < text.length ? "…" : ""}`.replace(/\s+/g, " ");
@@ -133,14 +161,27 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
         .orderBy(desc(conversations.pinned), desc(conversations.updatedAt)).limit(limit);
       return c.json(rows.map((r) => convDTO(r)));
     }
-    // Full-text: substring match on titles and message text (works for CJK, unlike the 'simple' tsvector).
+    // Full-text over messages: app-tokenized tsvector (CJK bigrams + words, all terms must match; Latin words
+    // prefix-matched), GIN-indexed. Titles: substring. Queries without searchable terms fall back to ILIKE.
     const like = `%${escapeLike(q)}%`;
-    const hits = await db
-      .selectDistinctOn([messages.conversationId], { conversationId: messages.conversationId, text: messages.searchText })
-      .from(messages)
-      .where(ilike(messages.searchText, like))
-      .orderBy(messages.conversationId, desc(messages.createdAt))
-      .limit(1000);
+    const tsq = toTsqueryLiteral(q, "and");
+    let hits: { conversationId: string; text: string | null }[];
+    if (tsq) {
+      await backfillMessageTsv(c.get("database"));
+      hits = await db
+        .selectDistinctOn([messages.conversationId], { conversationId: messages.conversationId, text: messages.searchText })
+        .from(messages)
+        .where(sql`${messages.searchTsv} @@ ${tsq}::tsquery`)
+        .orderBy(messages.conversationId, sql`ts_rank_cd(${messages.searchTsv}, ${tsq}::tsquery) DESC`, desc(messages.createdAt))
+        .limit(1000);
+    } else {
+      hits = await db
+        .selectDistinctOn([messages.conversationId], { conversationId: messages.conversationId, text: messages.searchText })
+        .from(messages)
+        .where(ilike(messages.searchText, like))
+        .orderBy(messages.conversationId, desc(messages.createdAt))
+        .limit(1000);
+    }
     const hitText = new Map(hits.map((h) => [h.conversationId, h.text ?? ""]));
     const match = or(ilike(conversations.title, like), hitText.size ? inArray(conversations.id, [...hitText.keys()]) : sql`false`)!;
     const rows = await db.select().from(conversations).where(and(match, ...conds)).orderBy(desc(conversations.pinned), desc(conversations.updatedAt)).limit(limit);

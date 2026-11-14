@@ -84,5 +84,32 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "ALTER TABLE \"tool_approvals\" ADD COLUMN \"kind\" text DEFAULT 'approval' NOT NULL;",
    "ALTER TABLE \"tool_approvals\" ADD COLUMN \"answer\" jsonb;"
   ]
+ },
+ {
+  "tag": "0003_bumpy_retro_girl",
+  "hash": "a381616eb91cba5e768976bb0b67f9db2fbd9afb39d51ddd302c53919be2438c",
+  "statements": [
+   "CREATE TABLE \"kb_documents\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"collection_id\" uuid NOT NULL,\n\t\"file_id\" uuid,\n\t\"name\" text NOT NULL,\n\t\"mime\" text,\n\t\"size\" bigint DEFAULT 0 NOT NULL,\n\t\"status\" text DEFAULT 'uploading' NOT NULL,\n\t\"error\" text,\n\t\"chunk_count\" integer DEFAULT 0 NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+   "ALTER TABLE \"kb_chunks\" DROP CONSTRAINT \"kb_chunks_file_id_files_id_fk\";",
+   "ALTER TABLE \"kb_chunks\" ALTER COLUMN \"tsv\" DROP EXPRESSION;",
+   "ALTER TABLE \"kb_chunks\" ADD COLUMN \"document_id\" uuid;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"requested_dim\" integer;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"rerank_provider_id\" uuid;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"rerank_model\" text;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"chunk_size\" integer DEFAULT 1000 NOT NULL;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"chunk_overlap\" integer DEFAULT 150 NOT NULL;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"index_error\" text;",
+   "ALTER TABLE \"kb_collections\" ADD COLUMN \"index_lease_until\" timestamp with time zone;",
+   "ALTER TABLE \"messages\" ADD COLUMN \"search_tsv\" \"tsvector\";",
+   "ALTER TABLE \"kb_documents\" ADD CONSTRAINT \"kb_documents_collection_id_kb_collections_id_fk\" FOREIGN KEY (\"collection_id\") REFERENCES \"public\".\"kb_collections\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+   "ALTER TABLE \"kb_documents\" ADD CONSTRAINT \"kb_documents_file_id_files_id_fk\" FOREIGN KEY (\"file_id\") REFERENCES \"public\".\"files\"(\"id\") ON DELETE set null ON UPDATE no action;",
+   "CREATE INDEX \"kb_documents_collection_idx\" ON \"kb_documents\" USING btree (\"collection_id\");",
+   "ALTER TABLE \"kb_chunks\" ADD CONSTRAINT \"kb_chunks_document_id_kb_documents_id_fk\" FOREIGN KEY (\"document_id\") REFERENCES \"public\".\"kb_documents\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+   "ALTER TABLE \"kb_chunks\" ADD CONSTRAINT \"kb_chunks_file_id_files_id_fk\" FOREIGN KEY (\"file_id\") REFERENCES \"public\".\"files\"(\"id\") ON DELETE set null ON UPDATE no action;",
+   "ALTER TABLE \"kb_collections\" ADD CONSTRAINT \"kb_collections_rerank_provider_id_providers_id_fk\" FOREIGN KEY (\"rerank_provider_id\") REFERENCES \"public\".\"providers\"(\"id\") ON DELETE set null ON UPDATE no action;",
+   "CREATE UNIQUE INDEX \"kb_chunks_document_chunk_uq\" ON \"kb_chunks\" USING btree (\"document_id\",\"chunk_index\");",
+   "CREATE INDEX \"kb_collections_project_idx\" ON \"kb_collections\" USING btree (\"project_id\");",
+   "CREATE INDEX \"messages_search_tsv_idx\" ON \"messages\" USING gin (\"search_tsv\");"
+  ]
  }
 ];

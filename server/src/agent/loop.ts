@@ -42,6 +42,8 @@ export interface AgentEnv {
   maxToolResultChars?: number;
   /** Project file storage (S3); also resolves `fileId` attachment parts for the model. */
   storage?: FileStore;
+  /** Cloudflare Workers AI binding (embedding via binding instead of REST). */
+  ai?: import("../providers/probe").AiBinding | null;
   /** Override model resolution (tests). */
   resolveModel?: (modelRowId: string) => Promise<ResolvedModel>;
 }
@@ -392,7 +394,7 @@ async function segmentBody(
           try {
             result = await tool.execute(call.args, {
               runId, conversationId, projectId, signal: workSignal, database: db, encKey: env.encKey,
-              fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage,
+              fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage, ai: env.ai,
             });
           } catch (e) {
             if (workSignal.aborted) return; // re-run next segment (deadline) or flushed as stopped

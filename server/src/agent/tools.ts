@@ -11,6 +11,8 @@ import { webFetchTool, webSearchTool } from "../tools/web";
 import { fileTools } from "../tools/files";
 import { memoryTools } from "../tools/memory";
 import { askUserTool, todoTool } from "../tools/misc";
+import { kbSearchTool } from "../tools/kb";
+import type { AiBinding } from "../providers/probe";
 
 export interface ToolContext {
   runId: string;
@@ -23,6 +25,8 @@ export interface ToolContext {
   fetch: typeof fetch;
   /** Project file storage (S3). */
   storage?: FileStore;
+  /** Cloudflare Workers AI binding (CF deployments with an AI binding). */
+  ai?: AiBinding | null;
 }
 
 export interface ToolTargets {
@@ -123,5 +127,5 @@ export const getTimeTool: Tool = {
 };
 
 export function builtinRegistry(): ToolRegistry {
-  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, todoTool, askUserTool);
+  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, todoTool, askUserTool);
 }

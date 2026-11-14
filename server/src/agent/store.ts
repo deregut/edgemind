@@ -1,5 +1,6 @@
 /** Run persistence helpers: leases, step log, checkpoints, messages. */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { toTsvectorLiteral } from "../lib/textsearch";
 import type { Part, RunStatus, StoredMessageDTO } from "@edgemind/shared";
 import type { Database } from "../db/client";
 import { conversations, messages, runs } from "../db/schema";
@@ -101,9 +102,10 @@ export async function insertMessage(
   database: Database,
   m: { conversationId: string; parentId: string | null; role: string; parts: Part[]; runId?: string | null; modelId?: string | null },
 ) {
+  const searchText = searchTextOf(m.parts);
   const [row] = await database.db
     .insert(messages)
-    .values({ conversationId: m.conversationId, parentId: m.parentId, role: m.role, parts: m.parts, runId: m.runId ?? null, modelId: m.modelId ?? null, searchText: searchTextOf(m.parts) })
+    .values({ conversationId: m.conversationId, parentId: m.parentId, role: m.role, parts: m.parts, runId: m.runId ?? null, modelId: m.modelId ?? null, searchText, searchTsv: sql`${toTsvectorLiteral(searchText)}::tsvector` as unknown as string })
     .returning();
   await database.db.update(conversations).set({ activeLeafId: row.id, updatedAt: new Date() }).where(eq(conversations.id, m.conversationId));
   return row;
