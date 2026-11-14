@@ -49,3 +49,72 @@ description: 說明這個 Skill 做什麼、什麼時候該用它（模型依這
 ## 步驟
 1. …
 `;
+
+// ---------------- MCP (M9) ----------------
+
+export type McpTransportKind = "streamable_http" | "sse";
+export type McpAuthType = "none" | "bearer" | "headers" | "oauth";
+export type McpAuthStatus = "none" | "configured" | "needs_auth" | "authorized";
+
+export interface McpServerDTO {
+  id: string;
+  name: string;
+  url: string;
+  transport: McpTransportKind;
+  authType: McpAuthType;
+  authStatus: McpAuthStatus;
+  /** Header names only (values are secret). */
+  headerNames: string[];
+  oauthClientId: string | null;
+  oauthScope: string | null;
+  enabled: boolean;
+  toolPrefix: string;
+  serverInfo: Record<string, unknown> | null;
+  instructions: string | null;
+  lastError: string | null;
+  lastSyncedAt: string | null;
+  toolCount: number;
+  enabledToolCount: number;
+  createdAt: string;
+}
+
+export interface McpToolDTO {
+  id: string;
+  serverId: string;
+  name: string;
+  /** Name the model sees: mcp__{prefix}__{tool}. */
+  qualifiedName: string;
+  title: string | null;
+  description: string | null;
+  inputSchema: unknown;
+  annotations: Record<string, unknown> | null;
+  enabled: boolean;
+  riskLevel: import("./agent").RiskLevel;
+  riskCustomized: boolean;
+}
+
+export interface McpServerInput {
+  name?: string;
+  url?: string;
+  transport?: McpTransportKind;
+  authType?: McpAuthType;
+  /** Bearer token (write-only; omit to keep). */
+  bearer?: string;
+  /** Custom headers (write-only; omit to keep). */
+  headers?: Record<string, string>;
+  oauthClientId?: string | null;
+  /** Write-only; omit to keep. */
+  oauthClientSecret?: string | null;
+  oauthScope?: string | null;
+  enabled?: boolean;
+}
+
+export interface McpSyncResponse {
+  server: McpServerDTO;
+  tools: McpToolDTO[];
+  added?: number;
+  removed?: number;
+  /** Set when the server needs OAuth / credentials before tools can be listed. */
+  needsAuth?: boolean;
+  error?: string;
+}

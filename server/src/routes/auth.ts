@@ -27,7 +27,8 @@ export const MIN_PASSWORD_LEN = 10;
 
 /** Internal routes verify their own HMAC token (see routes/chat.ts drive endpoint). */
 export const INTERNAL_PREFIX = "/api/internal/";
-const PUBLIC_PATHS = new Set(["/api/auth/setup", "/api/auth/login"]);
+/** The MCP OAuth callback is a cross-site redirect (SameSite=Strict cookies absent): authenticated by its single-use `state`. */
+const PUBLIC_PATHS = new Set(["/api/auth/setup", "/api/auth/login", "/api/mcp/oauth/callback"]);
 
 function isSecure(c: Ctx) {
   return new URL(c.req.url).protocol === "https:";

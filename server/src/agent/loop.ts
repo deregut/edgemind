@@ -20,6 +20,7 @@ import { auditLogs, projects, toolApprovals, usageLogs } from "../db/schema";
 import { costOf, getFullModeCaps, getModelPrices } from "../lib/settings";
 import { AssistantBuilder, resolveModel, streamChat, type Fetch, type ResolvedModel, type RetryOptions } from "../llm";
 import { assembleContext, type ContextHooks } from "./context";
+import { buildMcpTools, mcpRisks } from "../mcp/service";
 import { evaluate, loadGrants, loadPolicies, resolveMode, type Policy } from "./permissions";
 import {
   appendStep, claimRun, getRun, heartbeat, insertMessage, saveRun, toMessageDTO, transition, STALE_LEASE_MS,
@@ -102,12 +103,13 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 
 export async function pendingApprovals(database: Database, runId: string, registry?: ToolRegistry): Promise<PendingApprovalDTO[]> {
   const rows = await database.db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, runId), eq(toolApprovals.status, "pending")));
+  const mcp = rows.some((r) => r.toolName.startsWith("mcp__")) ? await mcpRisks(database).catch(() => new Map()) : new Map();
   return rows.map((r) => ({
     id: r.id,
     toolCallId: r.toolCallId,
     toolName: r.toolName,
     args: r.args,
-    risk: registry?.get(r.toolName)?.risk ?? "unknown",
+    risk: registry?.get(r.toolName)?.risk ?? mcp.get(r.toolName) ?? "unknown",
     reason: r.kind === "question" ? "等待你的回答" : "需要你的批准",
     kind: r.kind === "question" ? ("question" as const) : ("approval" as const),
   }));
@@ -244,7 +246,7 @@ async function segmentBody(
   deadlineSignal: AbortSignal,
   workSignal: AbortSignal,
 ): Promise<SegmentOutcome> {
-  const { database: db, registry } = env;
+  const { database: db } = env;
   const runId = run.id;
   const conversationId = run.conversationId;
   const cp = { ...(run.checkpoint as Checkpoint) };
@@ -252,6 +254,8 @@ async function segmentBody(
   emit({ type: "run", runId, conversationId, userMessageId: run.userMessageId, status: "running" });
 
   const { mode: resolvedMode, projectId } = await resolveMode(db, conversationId);
+  // MCP tools of the enabled servers (project allow-list applied) join the registry for this segment.
+  const registry = env.registry.withTools(await buildMcpTools(db, projectId).catch(() => []));
   const mode = (run.permissionMode as PermissionMode | null) ?? resolvedMode;
   const policies: Policy[] = await loadPolicies(db, conversationId, projectId);
   const grants = await loadGrants(db, conversationId);

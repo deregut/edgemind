@@ -87,6 +87,14 @@ export class ToolRegistry {
     return [...this.tools.values()];
   }
 
+  /** A copy with extra (e.g. per-run MCP) tools; built-ins win on a name clash. */
+  withTools(extra: Tool[]): ToolRegistry {
+    const r = new ToolRegistry();
+    for (const t of extra) if (!this.tools.has(t.name)) r.tools.set(t.name, t);
+    for (const [k, v] of this.tools) r.tools.set(k, v);
+    return r;
+  }
+
   targetsOf(tool: Tool, args: unknown): ToolTargets {
     return (tool.targets ?? defaultTargets)(args);
   }

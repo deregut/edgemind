@@ -12,6 +12,7 @@
  *   GET/PUT /api/settings/agent                   default model, max steps, 全部權限 caps, model prices
  */
 import type { Hono } from "hono";
+import { buildMcpTools } from "../mcp/service";
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AgentSettingsDTO, ConversationDTO, ModelOptionDTO, Part, PermissionMode, ProjectDTO, ToolInfoDTO } from "@edgemind/shared";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
@@ -55,6 +56,7 @@ const projDTO = (r: ProjRow, conversationCount?: number): ProjectDTO => ({
   permissionMode: (r.permissionMode as PermissionMode | null) ?? null,
   enabledTools: r.enabledTools ?? null,
   enabledSkills: r.enabledSkills ?? null,
+  enabledMcpServers: r.enabledMcpServers ?? null,
   archived: r.archived,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
@@ -322,6 +324,11 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
         throw new BadInput("enabledSkills 必須是 Skill id 陣列或 null");
       out.enabledSkills = body.enabledSkills === null ? null : [...new Set<string>(body.enabledSkills)];
     }
+    if (body.enabledMcpServers !== undefined) {
+      if (body.enabledMcpServers !== null && (!Array.isArray(body.enabledMcpServers) || body.enabledMcpServers.some((t: unknown) => typeof t !== "string" || t.length > 100)))
+        throw new BadInput("enabledMcpServers 必須是 MCP 伺服器 id 陣列或 null");
+      out.enabledMcpServers = body.enabledMcpServers === null ? null : [...new Set<string>(body.enabledMcpServers)];
+    }
     if (body.archived !== undefined) out.archived = !!body.archived;
     return out;
   }
@@ -387,8 +394,9 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
     return c.json(out);
   });
 
-  app.get("/tools", (c) => {
-    const out: ToolInfoDTO[] = registry.list().map((t) => ({
+  app.get("/tools", async (c) => {
+    const mcp = await buildMcpTools(c.get("database"), null).catch(() => []);
+    const out: ToolInfoDTO[] = registry.withTools(mcp).list().map((t) => ({
       name: t.name, description: t.description, risk: t.risk,
       ...(t.interactive ? { interactive: true } : {}), ...(t.projectOnly ? { projectOnly: true } : {}),
     }));

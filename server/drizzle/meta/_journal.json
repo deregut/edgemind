@@ -36,6 +36,13 @@
       "when": 1794664688382,
       "tag": "0004_lush_miracleman",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794665292957,
+      "tag": "0005_sudden_hellcat",
+      "breakpoints": true
     }
   ]
 }

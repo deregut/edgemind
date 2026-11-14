@@ -14,6 +14,7 @@ import { mountWorkspace } from "./routes/workspace";
 import { mountFiles } from "./routes/files";
 import { mountKb } from "./routes/kb";
 import { mountSkills } from "./routes/skills";
+import { mountMcp } from "./routes/mcp";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -95,6 +96,7 @@ export function createApp(deps: AppDeps) {
   mountFiles(app, deps);
   mountKb(app, deps);
   mountSkills(app, deps);
+  mountMcp(app, deps);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;

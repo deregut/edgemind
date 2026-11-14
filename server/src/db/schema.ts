@@ -343,10 +343,20 @@ export const mcpServers = pgTable("mcp_servers", {
   /** Encrypted JSON: headers / bearer / oauth tokens. */
   authEnc: text("auth_enc"),
   enabled: boolean("enabled").notNull().default(true),
+  /** Short unique slug used in model-facing tool names: mcp__{toolPrefix}__{tool}. */
+  toolPrefix: text("tool_prefix"),
+  /** Streamable HTTP session (reused across serverless invocations; re-initialized on 404). */
+  sessionId: text("session_id"),
+  protocolVersion: text("protocol_version"),
+  serverInfo: jsonb("server_info").$type<Record<string, unknown>>(),
+  instructions: text("instructions"),
+  lastError: text("last_error"),
+  /** Pending OAuth authorization `state` (lookup key for the callback). */
+  oauthState: text("oauth_state"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, (t) => [uniqueIndex("mcp_servers_prefix_uq").on(t.toolPrefix), index("mcp_servers_oauth_state_idx").on(t.oauthState)]);
 
 export const mcpTools = pgTable("mcp_tools", {
   id: id(),
@@ -356,6 +366,11 @@ export const mcpTools = pgTable("mcp_tools", {
   inputSchema: jsonb("input_schema"),
   enabled: boolean("enabled").notNull().default(true),
   riskLevel: text("risk_level").notNull().default("dangerous"), // read | write | dangerous | external
+  title: text("title"),
+  /** MCP tool annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint). */
+  annotations: jsonb("annotations").$type<Record<string, unknown>>(),
+  /** True when the user changed the risk level (sync then keeps it). */
+  riskCustomized: boolean("risk_customized").notNull().default(false),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("mcp_tools_server_name_uq").on(t.serverId, t.name)]);
 

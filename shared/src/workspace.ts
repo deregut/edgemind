@@ -35,6 +35,8 @@ export interface ProjectDTO {
   enabledTools: string[] | null;
   /** null = every enabled skill; else skill ids. */
   enabledSkills: string[] | null;
+  /** null = every enabled MCP server; else server ids. */
+  enabledMcpServers: string[] | null;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -49,6 +51,7 @@ export interface ProjectInput {
   permissionMode?: PermissionMode | null;
   enabledTools?: string[] | null;
   enabledSkills?: string[] | null;
+  enabledMcpServers?: string[] | null;
   archived?: boolean;
 }
 

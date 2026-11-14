@@ -119,5 +119,23 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "ALTER TABLE \"skills\" ADD COLUMN \"files\" jsonb DEFAULT '[]'::jsonb NOT NULL;",
    "ALTER TABLE \"skills\" ADD COLUMN \"frontmatter\" jsonb DEFAULT '{}'::jsonb NOT NULL;"
   ]
+ },
+ {
+  "tag": "0005_sudden_hellcat",
+  "hash": "b6bd6835ec7aba750b7502b10b84d541b95896482b399deae02868df2e64b70c",
+  "statements": [
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"tool_prefix\" text;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"session_id\" text;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"protocol_version\" text;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"server_info\" jsonb;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"instructions\" text;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"last_error\" text;",
+   "ALTER TABLE \"mcp_servers\" ADD COLUMN \"oauth_state\" text;",
+   "ALTER TABLE \"mcp_tools\" ADD COLUMN \"title\" text;",
+   "ALTER TABLE \"mcp_tools\" ADD COLUMN \"annotations\" jsonb;",
+   "ALTER TABLE \"mcp_tools\" ADD COLUMN \"risk_customized\" boolean DEFAULT false NOT NULL;",
+   "CREATE UNIQUE INDEX \"mcp_servers_prefix_uq\" ON \"mcp_servers\" USING btree (\"tool_prefix\");",
+   "CREATE INDEX \"mcp_servers_oauth_state_idx\" ON \"mcp_servers\" USING btree (\"oauth_state\");"
+  ]
  }
 ];
