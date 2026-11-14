@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SkillsSection } from "@/components/Skills";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -35,6 +36,7 @@ export function SettingsPage() {
           <TabsTrigger value="providers">供應商</TabsTrigger>
           <TabsTrigger value="agent">Agent 與權限</TabsTrigger>
           <TabsTrigger value="kb">知識庫</TabsTrigger>
+          <TabsTrigger value="skills">Skills</TabsTrigger>
           <TabsTrigger value="storage">儲存空間</TabsTrigger>
           <TabsTrigger value="security">帳號安全</TabsTrigger>
           <TabsTrigger value="appearance">外觀</TabsTrigger>
@@ -42,6 +44,7 @@ export function SettingsPage() {
         <TabsContent value="providers"><ProvidersSection /></TabsContent>
         <TabsContent value="agent"><AgentSettingsSection /></TabsContent>
         <TabsContent value="kb"><KnowledgeBase projectId={null} /></TabsContent>
+        <TabsContent value="skills"><SkillsSection /></TabsContent>
         <TabsContent value="storage"><StorageSection /></TabsContent>
         <TabsContent value="security"><SecuritySection /></TabsContent>
         <TabsContent value="appearance">

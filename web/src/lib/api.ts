@@ -38,3 +38,14 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   }
   return data as T;
 }
+
+/** Raw-body POST (e.g. a zip upload) with the CSRF header; JSON response. */
+export async function apiUpload<T>(path: string, body: Blob, contentType: string): Promise<T> {
+  const token = readCookie(CSRF_COOKIE);
+  const headers: Record<string, string> = { "content-type": contentType };
+  if (token) headers[CSRF_HEADER] = decodeURIComponent(token);
+  const res = await fetch(`/api${path}`, { method: "POST", headers, credentials: "same-origin", body });
+  const data: any = await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? "http_error", data?.message ?? `請求失敗（HTTP ${res.status}）`, data);
+  return data as T;
+}
