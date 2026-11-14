@@ -15,7 +15,7 @@
 - 介面為正體中文，支援淺色／深色／跟隨系統
 - 聊天：串流 Markdown（程式碼高亮、KaTeX、Mermaid）、思考過程、工具呼叫卡片、批准卡片、分支切換、重新生成、匯出 Markdown／JSON、背景執行
 - 專案：專屬指示、預設模型與權限模式、啟用工具篩選、檔案空間（瀏覽器直傳 S3，大檔自動分段上傳，保留版本）
-- 內建工具：`web_search`（Tavily／Serper／SearXNG／Jina／Google PSE，依優先順序備援，結果一律限長）、`web_fetch`（Readability 轉 Markdown、分段讀取、SSRF 防護、Jina Reader 備援）、`file_*`、`memory_*`、`todo`、`ask_user`
+- 內建工具：`web_search`（Tavily／Serper／SearXNG／Jina／Google PSE，依優先順序備援，結果一律限長）、`web_fetch`（Readability 轉 Markdown、分段讀取、SSRF 防護、Jina Reader 備援）、`file_*`、`memory_*`、`todo`、`ask_user`、`code_run`、`http_request`
 
 ## 技術架構
 
@@ -81,6 +81,15 @@ npx wrangler pages deploy
 - 模型透過 `kb_search` 工具檢索，結果附編號引用、來源檔名與分數；專案內對話自動附加該專案的知識庫與全域知識庫。
 - Cloudflare 部署可在 `wrangler.toml` 啟用 `[ai] binding = "AI"`，讓 Workers AI Embedding 不需 API Token。
 
+## 執行程式碼與呼叫 API
+
+- `code_run`（危險，預設每次詢問）：
+  - **JavaScript**：在伺服器端以 QuickJS（WebAssembly）執行，無網路、無 Node API，記憶體 64 MB、預設 10 秒、最長 30 秒；可掛載專案檔案（合計 ≤10 MB）到虛擬檔案系統（`fs.readFile`／`fs.writeFile`／`fs.listFiles`），寫入的檔案會存回專案並保留舊版本。Netlify 與 Cloudflare Pages 都可執行（Cloudflare 以模組方式載入 `.wasm`）。
+  - **Python**：在你的瀏覽器中以 Pyodide 執行（從 jsDelivr CDN 載入並快取），執行期間 Agent 會暫停、完成後自動接續；`import numpy／pandas／matplotlib` 會自動安裝，matplotlib 圖表自動存成 PNG 上傳回專案。需要開著聊天分頁，背景模式無法使用。
+  - 輸出（stdout／stderr／回傳值）各最多 20,000 字元，過長時完整內容另存為專案檔 `code_run_outputs/…`。
+- `http_request`（危險）：呼叫任意 HTTP API。在 設定 → **密鑰** 新增 API Key 等機密並綁定允許網域（支援 `*.example.com`），請求中寫 `{{secret:名稱}}` 由伺服器端替換；模型看不到真值，回應與紀錄中出現的密鑰值會被遮蔽，內網位址一律封鎖。可用 `saveResponseTo`／`bodyFromFile` 在 API 與專案檔之間傳檔。
+- 內建 Skills：`e2b-sandbox`（E2B 雲端沙盒：完整 Linux＋Python，免費 Hobby 方案為一次性 100 美元額度、免信用卡；需要密鑰 `E2B_API_KEY`，允許網域 `api.e2b.app`）與 `self-hosted-runner`（自架 Piston／Judge0，多語言執行；公開的 emkc.org Piston API 自 2026-02-15 起改為白名單制）。可在 設定 → Skills 停用、編輯或刪除。
+
 ## 安全設計
 
 - 單一管理密碼：PBKDF2-SHA256（100,000 次，Cloudflare Workers 的 WebCrypto 上限）
@@ -91,6 +100,7 @@ npx wrangler pages deploy
 - `web_fetch`：只允許 http(s)；以 DNS-over-HTTPS 解析主機，任何解析到內網／保留位址（含 IPv6、IPv4-mapped）的網址一律封鎖，每次重新導向都重新檢查；解析失敗即拒絕
 - 物件儲存：上傳一律用預簽名 URL 由瀏覽器直傳；第一次上傳時自動為目前網站來源設定 Bucket CORS（也可在 設定 → 儲存空間 手動套用；若服務商不允許以 API 設定，請到後台加入：允許 GET/PUT/HEAD、所有標頭、公開 `ETag` 標頭）
 - 「全部權限」模式可設定步數、Token 與花費上限（設定 → Agent 與權限）
+- 密鑰（設定 → 密鑰）：AES-256-GCM 加密（以密鑰 ID 作為 AAD），只在 `http_request` 送出時於伺服器端解密；每個密鑰只能送往允許網域，重新導向到其他網域時不會跟隨；回應、錯誤訊息、執行紀錄與稽核紀錄中的密鑰值（含 URL 編碼與 Base64 形式）一律遮蔽
 
 ## 本機開發
 

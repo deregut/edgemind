@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { AlertTriangle, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, Loader2, ShieldAlert, Wrench, X } from "lucide-react";
-import { RISK_LABELS, type PendingApprovalDTO, type RiskLevel, type ApprovalDecision } from "@edgemind/shared";
+import { RISK_LABELS, type ClientToolArgs, type PendingApprovalDTO, type RiskLevel, type ApprovalDecision } from "@edgemind/shared";
+import { cancelClientTool, useClientStatus, type ClientPhase } from "@/lib/clientTools";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -88,8 +89,44 @@ export function ToolCard(props: { name: string; args: unknown; argsText?: string
   );
 }
 
+const PHASE_LABEL: Record<ClientPhase, string> = {
+  fetching: "下載掛載的檔案…",
+  loading: "載入 Python 環境（Pyodide，首次較久）…",
+  packages: "安裝需要的套件…",
+  running: "執行中…",
+  collecting: "收集輸出與圖表…",
+  uploading: "上傳產生的檔案…",
+  sending: "回傳結果…",
+  done: "完成",
+  error: "失敗",
+  cancelled: "已取消",
+};
+
+/** code_run python executing in this browser tab (Pyodide). */
+function ClientToolCard({ a }: { a: PendingApprovalDTO }) {
+  const st = useClientStatus(a.toolCallId);
+  const args = (a.args ?? {}) as Partial<ClientToolArgs>;
+  const active = !st || !["done", "error", "cancelled"].includes(st.phase);
+  return (
+    <div className="my-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        {active ? <Loader2 className="h-4 w-4 animate-spin text-sky-600" /> : st?.phase === "done" ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-destructive" />}
+        <span className="font-medium">在瀏覽器執行 Python</span>
+        <span className="text-xs text-muted-foreground">{st ? PHASE_LABEL[st.phase] : "準備中…"}</span>
+        {!!args.mounts?.length && <span className="text-xs text-muted-foreground">掛載 {args.mounts.length} 個檔案</span>}
+      </div>
+      {st?.message && <div className="mb-2 text-xs text-destructive">{st.message}</div>}
+      <pre className="mb-2 max-h-56 overflow-auto rounded bg-muted/60 p-2 text-xs">{args.code ?? ""}</pre>
+      <div className="flex items-center gap-2">
+        {active && <Button size="sm" variant="outline" onClick={() => cancelClientTool(a.toolCallId)}>取消執行</Button>}
+        <span className="text-xs text-muted-foreground">請保持此分頁開啟直到完成；逾時 {args.timeoutSec ?? 30} 秒（不含載入）。</span>
+      </div>
+    </div>
+  );
+}
+
 export function ApprovalCard({ a, onDecide, onAnswer }: {
-  a: PendingApprovalDTO & { kind?: "approval" | "question" };
+  a: PendingApprovalDTO;
   onDecide(decision: ApprovalDecision): Promise<void>;
   onAnswer?(answer: string): Promise<void>;
 }) {
@@ -103,6 +140,7 @@ export function ApprovalCard({ a, onDecide, onAnswer }: {
       setBusy(false);
     }
   };
+  if (a.kind === "client") return <ClientToolCard a={a} />;
   if (a.kind === "question") {
     const q = (a.args ?? {}) as { question?: string; choices?: string[] };
     return (

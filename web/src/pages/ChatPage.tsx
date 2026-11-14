@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Composer } from "@/components/chat/Composer";
 import { AssistantTurn, UserMessage, type LiveState } from "@/components/chat/Messages";
+import { runClientTool } from "@/lib/clientTools";
 import { api, ApiError } from "@/lib/api";
 import { download, postChat } from "@/lib/stream";
 import { latestLeaf, pathTo, toTurns } from "@/lib/tree";
@@ -378,6 +379,22 @@ export function ChatPage() {
       toast.error((e as Error).message);
     }
   }
+
+  // Client-side tools (code_run python): execute pending items in this tab, then continue the run.
+  useEffect(() => {
+    const runId = live?.runId;
+    if (!runId) return;
+    for (const a of live.approvals) {
+      if (a.kind !== "client") continue;
+      runClientTool(runId, a).then((r) => {
+        if (!r) return;
+        setLive((l) => l && { ...l, approvals: l.approvals.filter((x) => x.toolCallId !== a.toolCallId) });
+        if (r.resume) runChat({ runId, action: "continue" });
+        else if (r.status === "paused") startPolling(runId, 0);
+      }).catch((e) => toast.error((e as Error).message));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live?.runId, live?.approvals]);
 
   async function decide(a: PendingApprovalDTO, decision: ApprovalDecision, answer?: string) {
     const runId = live?.runId;
