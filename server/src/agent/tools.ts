@@ -16,6 +16,8 @@ import { skillTools } from "../tools/skills";
 import { codeRunTool } from "../tools/code";
 import { httpRequestTool } from "../tools/http";
 import { imageGenerateTool } from "../tools/image";
+import { subagentTool } from "../tools/subagent";
+import type { ResolvedModel } from "../llm";
 import type { AiBinding } from "../providers/probe";
 
 export interface ToolContext {
@@ -33,6 +35,9 @@ export interface ToolContext {
   ai?: AiBinding | null;
   /** Id of the tool call being executed. */
   callId?: string;
+  /** The run's resolved model and tool registry (sub-agents reuse them). */
+  model?: ResolvedModel;
+  registry?: ToolRegistry;
   /** Epoch ms after which the segment aborts in-flight work (undefined = no hard deadline). */
   deadline?: number;
 }
@@ -164,5 +169,5 @@ export const getTimeTool: Tool = {
 };
 
 export function builtinRegistry(): ToolRegistry {
-  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, codeRunTool, httpRequestTool, imageGenerateTool, todoTool, askUserTool);
+  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, codeRunTool, httpRequestTool, imageGenerateTool, subagentTool, todoTool, askUserTool);
 }

@@ -316,7 +316,7 @@ async function segmentBody(
   const deadline = opts.hardMs !== undefined ? segmentStart + opts.hardMs : undefined;
   const toolCtx = (callId: string): ToolContext => ({
     runId, conversationId, projectId, signal: workSignal, database: db, encKey: env.encKey,
-    fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage, ai: env.ai, callId, deadline,
+    fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage, ai: env.ai, callId, deadline, model, registry,
   });
   /** A result already recorded in run_steps for this call (crash between recording and checkpointing). */
   const recordedResult = async (callId: string): Promise<{ result: unknown; isError?: boolean } | undefined> => {
