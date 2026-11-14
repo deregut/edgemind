@@ -12,11 +12,12 @@
  * History stays provider-valid: every assistant tool_call gets a tool_result (denied / stopped calls get an
  * error result), and each model step / tool batch is its own message row chained by parent_id.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { AgentEvent, ChatRequest, PendingApprovalDTO, PermissionMode, RunStatus } from "@edgemind/shared";
 import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
 import type { Database } from "../db/client";
-import { auditLogs, toolApprovals, usageLogs } from "../db/schema";
+import { auditLogs, projects, toolApprovals, usageLogs } from "../db/schema";
+import { costOf, getFullModeCaps, getModelPrices } from "../lib/settings";
 import { AssistantBuilder, resolveModel, streamChat, type Fetch, type ResolvedModel, type RetryOptions } from "../llm";
 import { assembleContext, type ContextHooks } from "./context";
 import { evaluate, loadGrants, loadPolicies, resolveMode, type Policy } from "./permissions";
@@ -221,6 +222,15 @@ async function segmentBody(
   const model = await (env.resolveModel ? env.resolveModel(run.modelId) : resolveModel(db, env.encKey, run.modelId, env.fetch));
   if (env.llmRetry) model.cfg.retry = env.llmRetry;
   const maxChars = env.maxToolResultChars ?? 50_000;
+  let enabledTools: string[] | null = null;
+  if (projectId) {
+    const [p] = await db.db.select({ t: projects.enabledTools }).from(projects).where(eq(projects.id, projectId)).limit(1);
+    enabledTools = Array.isArray(p?.t) ? p.t : null;
+  }
+  /** Project tool filter (`enabledTools`, null = all) + project-only tools. */
+  const toolAvailable = (t: Tool) => (!t.projectOnly || !!projectId) && (enabledTools === null || enabledTools.includes(t.name));
+  const fullCaps = mode === "full" ? await getFullModeCaps(db) : null;
+  const prices = await getModelPrices(db);
 
   const audit = (toolName: string, decision: string, detail: Record<string, unknown>) =>
     db.db.insert(auditLogs).values({ action: "tool_call", runId, conversationId, toolName, decision, detail });
@@ -267,7 +277,15 @@ async function segmentBody(
       };
       for (const call of p.calls) {
         if (p.results[call.id]) continue;
-        const tool = registry.get(call.name);
+        const found = registry.get(call.name);
+        if (found && !toolAvailable(found)) {
+          const msg = found.projectOnly && !projectId ? `${call.name} 只能在專案內的對話使用。` : `${call.name} 未在此專案啟用。`;
+          setResult(call.id, msg, true);
+          await audit(call.name, "deny", { callId: call.id, reason: "tool_disabled" });
+          emit({ type: "tool-result", callId: call.id, name: call.name, result: msg, isError: true });
+          continue;
+        }
+        const tool = found;
         if (!tool) {
           setResult(call.id, `未知的工具：${call.name}`, true);
           await audit(call.name, "deny", { callId: call.id, reason: "unknown_tool" });
@@ -361,10 +379,21 @@ async function segmentBody(
     if (stepCount >= run.maxSteps) return finalize("completed", "max_steps");
     if (modelStepsThisSegment > 0 && elapsed() >= opts.softMs) return pause("budget");
     if (deadlineSignal.aborted) return pause("deadline");
+    if (fullCaps) {
+      if (fullCaps.maxSteps && stepCount >= fullCaps.maxSteps) return finalize("completed", "full_mode_step_cap");
+      if (fullCaps.maxTokens || fullCaps.maxCostUsd) {
+        const [u] = await db.db
+          .select({ tokens: sql<number>`coalesce(sum(coalesce(${usageLogs.inputTokens},0) + coalesce(${usageLogs.outputTokens},0)),0)::float8`, cost: sql<number>`coalesce(sum(${usageLogs.costUsd}),0)::float8` })
+          .from(usageLogs)
+          .where(eq(usageLogs.runId, runId));
+        if (fullCaps.maxTokens && Number(u.tokens) >= fullCaps.maxTokens) return finalize("completed", "full_mode_token_cap");
+        if (fullCaps.maxCostUsd && Number(u.cost) >= fullCaps.maxCostUsd) return finalize("completed", "full_mode_cost_cap");
+      }
+    }
 
     // ---------- 3. model step ----------
     const ctx = await assembleContext(db, conversationId, cp.leafId, env.hooks);
-    const tools = registry.defs((t) => (mode === "plan" ? t.risk === "read" : true));
+    const tools = registry.defs((t) => toolAvailable(t) && (mode === "plan" ? t.risk === "read" : true));
     const req: ChatRequest = {
       model: model.model,
       system: ctx.system,
@@ -398,6 +427,7 @@ async function segmentBody(
       await db.db.insert(usageLogs).values({
         providerId: model.providerId, model: model.model, runId, kind: "chat",
         inputTokens: b.usage.inputTokens, outputTokens: b.usage.outputTokens, cachedTokens: b.usage.cachedInputTokens ?? null,
+        costUsd: costOf(prices, model.modelRowId, b.usage.inputTokens, b.usage.outputTokens),
       });
     }
 

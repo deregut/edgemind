@@ -25,6 +25,10 @@ export interface Tool {
   description: string;
   parameters: Record<string, unknown>;
   risk: RiskLevel;
+  /** Only offered when the conversation belongs to a project (file_* tools). */
+  projectOnly?: boolean;
+  /** Pauses the run for user input (ask_user); bypasses the permission gate. */
+  interactive?: boolean;
   /** Permission-relevant targets of a call. Default: `path`/`paths`/`url`/`urls` args. */
   targets?(args: any): ToolTargets;
   execute(args: any, ctx: ToolContext): Promise<unknown>;

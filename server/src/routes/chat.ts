@@ -9,7 +9,7 @@
  *   POST /api/internal/runs/:id/drive    HMAC-signed background driver (Netlify background fn / CF waitUntil chain)
  */
 import type { Hono } from "hono";
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { AgentEvent, ApprovalDecision, Part, RunStatus } from "@edgemind/shared";
 import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
@@ -20,6 +20,7 @@ import { hmacHex, timingSafeEqual } from "../lib/crypto";
 import { abortLocalRun, closeStoppedRun, driveRun, pendingApprovals, runSegment, type AgentEnv } from "../agent/loop";
 import { appendStep, getRun, insertMessage, STALE_LEASE_MS, toMessageDTO, transition, type Checkpoint, type RunOptions } from "../agent/store";
 import { builtinRegistry } from "../agent/tools";
+import { isPermissionMode } from "../agent/permissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
@@ -102,6 +103,11 @@ function sse(c: Ctx, work: (emit: (e: AgentEvent) => void) => Promise<unknown>):
   return new Response(readable, {
     headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no" },
   });
+}
+
+async function lastSeq(c: Ctx, runId: string): Promise<number> {
+  const [r] = await c.get("database").db.select({ n: sql<number>`coalesce(max(${runSteps.seq}), 0)::int` }).from(runSteps).where(eq(runSteps.runId, runId));
+  return Number(r?.n ?? 0);
 }
 
 export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
@@ -222,7 +228,9 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
         projectId = p.id;
       }
       const firstText = typeof body.content === "string" ? body.content : Array.isArray(body.content) ? body.content.find((p: any) => p?.type === "text")?.text ?? "" : "";
-      [conv] = await db.insert(conversations).values({ projectId, title: String(firstText).trim().slice(0, 50) || "新對話" }).returning();
+      const permissionMode = body.permissionMode ?? null;
+      if (permissionMode !== null && !isPermissionMode(permissionMode)) throw new BadInput("未知的權限模式");
+      [conv] = await db.insert(conversations).values({ projectId, permissionMode, title: String(firstText).trim().slice(0, 50) || "新對話" }).returning();
       conversationId = conv.id;
     }
 
@@ -360,7 +368,18 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
     if (!conv) return c.json({ error: "not_found", message: "找不到對話" }, 404);
     const rows = await db.select().from(messages).where(eq(messages.conversationId, id)).orderBy(asc(messages.createdAt));
-    return c.json({ conversation: { id: conv.id, title: conv.title, projectId: conv.projectId, activeLeafId: conv.activeLeafId, permissionMode: conv.permissionMode }, messages: rows.map(toMessageDTO) });
+    // Latest unfinished run (reload while running / waiting for approval / paused between segments).
+    const [open] = await db.select().from(runs)
+      .where(and(eq(runs.conversationId, id), inArray(runs.status, ["pending", "running", "paused", "waiting_approval", "stopping"])))
+      .orderBy(desc(runs.createdAt)).limit(1);
+    const activeRun = open
+      ? { id: open.id, status: open.status, mode: open.mode, approvals: await pendingApprovals(c.get("database"), open.id, registry), lastSeq: await lastSeq(c, open.id) }
+      : null;
+    return c.json({
+      conversation: { id: conv.id, title: conv.title, projectId: conv.projectId, activeLeafId: conv.activeLeafId, permissionMode: conv.permissionMode, modelId: conv.modelId },
+      messages: rows.map(toMessageDTO),
+      activeRun,
+    });
   });
 
   // ----- internal: background driver (HMAC-signed, exempt from cookie auth/CSRF) -----

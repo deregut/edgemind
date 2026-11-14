@@ -38,6 +38,8 @@ export interface PendingApprovalDTO {
   args: unknown;
   risk: RiskLevel | "unknown";
   reason: string;
+  /** "question" = ask_user (answer instead of allow/deny). Default "approval". */
+  kind?: "approval" | "question";
 }
 
 export interface StoredMessageDTO {

@@ -10,6 +10,7 @@ import { mountAuth, isAuthenticated, ensureCsrfCookie } from "./routes/auth";
 import { mountProviders } from "./routes/providers";
 import { mountChat } from "./routes/chat";
 import { mountPermissions } from "./routes/permissions";
+import { mountWorkspace } from "./routes/workspace";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -87,6 +88,7 @@ export function createApp(deps: AppDeps) {
   mountProviders(app, deps);
   mountChat(app, deps);
   mountPermissions(app, deps);
+  mountWorkspace(app, deps);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;

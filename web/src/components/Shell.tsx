@@ -1,50 +1,35 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { MessageSquare, Settings, LogOut } from "lucide-react";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { api } from "@/lib/api";
+import { Sidebar } from "@/components/Sidebar";
+import { WorkspaceProvider } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
-const NAV = [
-  { to: "/", label: "聊天", icon: MessageSquare, end: true },
-  { to: "/settings", label: "設定", icon: Settings, end: false },
-];
-
 export function Shell({ onLogout }: { onLogout: () => void }) {
-  async function logout() {
-    await api("/auth/logout", { method: "POST" }).catch(() => {});
-    onLogout();
-  }
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <aside className="flex shrink-0 items-center gap-2 border-b bg-card/50 p-3 md:w-56 md:flex-col md:items-stretch md:border-b-0 md:border-r">
-        <div className="flex items-center gap-2 px-2 py-1 font-semibold">
-          <img src="/favicon.svg" alt="" className="h-6 w-6" /> EdgeMind
-        </div>
-        <nav className="flex flex-1 gap-1 md:mt-4 md:flex-col">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn("flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground", isActive && "bg-accent font-medium text-accent-foreground")
-              }
-            >
-              <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="flex items-center gap-2 md:flex-col md:items-stretch">
-          <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={logout} className="justify-start">
-            <LogOut /> <span className="hidden sm:inline">登出</span>
-          </Button>
-        </div>
-      </aside>
-      <main className="min-w-0 flex-1">
-        <Outlet />
-      </main>
-    </div>
+    <WorkspaceProvider>
+      <div className="flex h-dvh overflow-hidden">
+        {/* desktop sidebar */}
+        <aside className="hidden w-72 shrink-0 border-r bg-card/50 md:block">
+          <Sidebar onLogout={onLogout} />
+        </aside>
+        {/* mobile drawer */}
+        <div className={cn("fixed inset-0 z-40 bg-black/40 md:hidden", open ? "block" : "hidden")} onClick={() => setOpen(false)} />
+        <aside className={cn("fixed inset-y-0 left-0 z-50 w-72 border-r bg-background transition-transform md:hidden", open ? "translate-x-0" : "-translate-x-full")}>
+          <Sidebar onLogout={onLogout} onNavigate={() => setOpen(false)} />
+        </aside>
+        <main className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 border-b p-2 md:hidden">
+            <Button variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="開啟選單"><Menu /></Button>
+            <span className="font-semibold">EdgeMind</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </WorkspaceProvider>
   );
 }
