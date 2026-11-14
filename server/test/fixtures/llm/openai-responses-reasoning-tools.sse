@@ -1,0 +1,36 @@
+event: response.created
+data: {"type": "response.created", "response": {"id": "resp_2"}}
+
+event: response.output_item.added
+data: {"type": "response.output_item.added", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1", "summary": []}}
+
+event: response.reasoning_summary_text.delta
+data: {"type": "response.reasoning_summary_text.delta", "item_id": "rs_1", "delta": "**Planning** I should call two tools."}
+
+event: response.output_item.done
+data: {"type": "response.output_item.done", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "**Planning** I should call two tools."}], "encrypted_content": "gAAAAenc=="}}
+
+event: response.output_item.added
+data: {"type": "response.output_item.added", "output_index": 1, "item": {"type": "function_call", "id": "fc_1", "call_id": "call_x", "name": "get_time", "arguments": ""}}
+
+event: response.function_call_arguments.delta
+data: {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": "{\"tz\":\"UTC\"}"}
+
+event: response.output_item.added
+data: {"type": "response.output_item.added", "output_index": 2, "item": {"type": "function_call", "id": "fc_2", "call_id": "call_y", "name": "echo", "arguments": ""}}
+
+event: response.function_call_arguments.delta
+data: {"type": "response.function_call_arguments.delta", "item_id": "fc_2", "delta": "{\"text\":"}
+
+event: response.function_call_arguments.delta
+data: {"type": "response.function_call_arguments.delta", "item_id": "fc_2", "delta": "\"hi\"}"}
+
+event: response.output_item.done
+data: {"type": "response.output_item.done", "output_index": 1, "item": {"type": "function_call", "id": "fc_1", "call_id": "call_x", "name": "get_time", "arguments": "{\"tz\":\"UTC\"}"}}
+
+event: response.output_item.done
+data: {"type": "response.output_item.done", "output_index": 2, "item": {"type": "function_call", "id": "fc_2", "call_id": "call_y", "name": "echo", "arguments": "{\"text\":\"hi\"}"}}
+
+event: response.completed
+data: {"type": "response.completed", "response": {"status": "completed", "usage": {"input_tokens": 50, "output_tokens": 80, "output_tokens_details": {"reasoning_tokens": 64}}}}
+

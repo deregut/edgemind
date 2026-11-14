@@ -1,0 +1,4 @@
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "部分"}, "finish_reason": null}]}
+
+data: {"error": {"message": "Upstream overloaded", "type": "server_error", "code": "overloaded"}}
+

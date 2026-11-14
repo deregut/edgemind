@@ -45,13 +45,21 @@ export const LLM_PRESETS: { label: string; protocol: LlmProtocol; baseUrl: strin
   { label: "OpenAI 相容（自訂）", protocol: "openai", baseUrl: "", keyRequired: false },
 ];
 
+const extraHeaders: ConfigField = { key: "extraHeaders", label: "額外 HTTP 標頭（每行一個 Name: value，或 JSON 物件）", placeholder: "HTTP-Referer: https://example.com" };
+const openaiFields: ConfigField[] = [
+  { key: "api", label: "API 類型（chat 或 responses，預設 chat）", placeholder: "chat" },
+  extraHeaders,
+  { key: "streamUsage", label: "串流回報用量 stream_options（true/false，預設 true）", placeholder: "true" },
+  { key: "replayReasoning", label: "回傳 reasoning_content（DeepSeek 思考＋工具；true/false）", placeholder: "false" },
+];
+
 const cfAccount: ConfigField = { key: "accountId", label: "Cloudflare Account ID", required: true };
 
 export const PROVIDER_KINDS: ProviderKindSpec[] = [
   // LLM (kind = protocol)
-  { type: "llm", kind: "openai", label: "OpenAI 相容", defaultBaseUrl: "https://api.openai.com/v1", keyRequired: false, canListModels: true },
-  { type: "llm", kind: "anthropic", label: "Anthropic Messages", defaultBaseUrl: "https://api.anthropic.com", keyRequired: true, canListModels: true },
-  { type: "llm", kind: "gemini", label: "Gemini generateContent", defaultBaseUrl: "https://generativelanguage.googleapis.com", keyRequired: true, canListModels: true },
+  { type: "llm", kind: "openai", label: "OpenAI 相容", defaultBaseUrl: "https://api.openai.com/v1", keyRequired: false, canListModels: true, configFields: openaiFields },
+  { type: "llm", kind: "anthropic", label: "Anthropic Messages", defaultBaseUrl: "https://api.anthropic.com", keyRequired: true, canListModels: true, configFields: [extraHeaders] },
+  { type: "llm", kind: "gemini", label: "Gemini generateContent", defaultBaseUrl: "https://generativelanguage.googleapis.com", keyRequired: true, canListModels: true, configFields: [extraHeaders] },
 
   // Search (no Exa, no Brave — by decision)
   { type: "search", kind: "tavily", label: "Tavily", defaultBaseUrl: "https://api.tavily.com", keyRequired: true, canListModels: false },

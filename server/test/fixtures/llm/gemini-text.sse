@@ -1,0 +1,6 @@
+data: {"candidates": [{"content": {"role": "model", "parts": [{"text": "天氣"}]}, "index": 0}], "modelVersion": "gemini-2.5-flash", "responseId": "abc", "usageMetadata": {"promptTokenCount": 12, "totalTokenCount": 12}}
+
+data: {"candidates": [{"content": {"role": "model", "parts": [{"text": "很好。"}]}, "index": 0}], "modelVersion": "gemini-2.5-flash", "responseId": "abc"}
+
+data: {"candidates": [{"content": {"role": "model", "parts": [{"text": ""}]}, "index": 0, "finishReason": "STOP"}], "modelVersion": "gemini-2.5-flash", "responseId": "abc", "usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 5, "totalTokenCount": 17}}
+

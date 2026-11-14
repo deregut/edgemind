@@ -12,6 +12,7 @@
  *  - A kb_collection is bound to one embedding provider/model/dim; changing it triggers a re-index.
  */
 import { sql } from "drizzle-orm";
+import type { Part } from "@edgemind/shared";
 import {
   pgTable, text, integer, boolean, timestamp, jsonb, uuid, bigint, index, uniqueIndex, customType, real,
 } from "drizzle-orm/pg-core";
@@ -140,12 +141,8 @@ export const conversations = pgTable("conversations", {
   updatedAt: updatedAt(),
 }, (t) => [index("conversations_updated_idx").on(t.updatedAt), index("conversations_project_idx").on(t.projectId)]);
 
-export type MessagePart =
-  | { type: "text"; text: string }
-  | { type: "reasoning"; text: string; signature?: string }
-  | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "tool_result"; callId: string; name: string; result: unknown; isError?: boolean }
-  | { type: "attachment"; fileId: string; mime: string; name: string };
+/** Unified message parts (see shared/src/llm.ts). */
+export type MessagePart = Part;
 
 export const messages = pgTable("messages", {
   id: id(),

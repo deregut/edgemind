@@ -1,0 +1,12 @@
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "reasoning_content": "先想一下"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [{"index": 0, "delta": {"reasoning_content": "：1+1=2。"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [{"index": 0, "delta": {"content": "答案是 2。"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763100000, "model": "gpt-4.1-mini", "choices": [], "usage": {"prompt_tokens": 20, "completion_tokens": 30, "completion_tokens_details": {"reasoning_tokens": 12}}}
+
+data: [DONE]
+
