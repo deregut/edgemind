@@ -11,14 +11,22 @@ import { isTextMime } from "../storage/files";
 import { decodeUtf8Window } from "../storage/files";
 import { parseSkillMd } from "../skills/frontmatter";
 import { SKILL_MD, SkillConflict, SkillStore, type SkillRow } from "../skills/store";
+import { ensureBuiltinSkills } from "../skills/builtin";
 
 const MAX_CHARS = 40_000;
 const enc = new TextEncoder();
 
-function storeOf(ctx: ToolContext): SkillStore {
+async function storeOf(ctx: ToolContext): Promise<SkillStore> {
   if (!ctx.storage) throw new Error("物件儲存未設定（S3_* 環境變數），無法使用 Skills");
-  return new SkillStore(ctx.database, ctx.storage.s3);
+  const store = new SkillStore(ctx.database, ctx.storage.s3);
+  await ensureBuiltinSkills(store);
+  return store;
 }
+
+/** How bundled scripts can be run (M11a). */
+export const SCRIPT_NOTE =
+  "附檔可用 skill_load 並指定 path 讀取。Skill 內的腳本不會自動執行：JavaScript 腳本可讀取內容後用 code_run（language=javascript，伺服器端 QuickJS，無網路）執行；" +
+  "Python 腳本可用 code_run（language=python，在使用者瀏覽器的 Pyodide 執行，需開啟中的聊天分頁）或載入 e2b-sandbox Skill 在雲端沙盒執行；其他語言可用 self-hosted-runner Skill。";
 
 async function findAvailable(store: SkillStore, ctx: ToolContext, name: string): Promise<SkillRow> {
   const all = await store.available(ctx.projectId);
@@ -59,7 +67,7 @@ export const skillLoadTool: Tool = {
   },
   targets: () => ({}),
   async execute(args, ctx) {
-    const store = storeOf(ctx);
+    const store = await storeOf(ctx);
     const r = await findAvailable(store, ctx, String(args?.name ?? "").trim());
     const path = typeof args?.path === "string" && args.path.trim() ? args.path.trim().replace(/^\.\//, "") : SKILL_MD;
     const offset = Number.isInteger(args?.offset) ? args.offset : 0;
@@ -76,7 +84,7 @@ export const skillLoadTool: Tool = {
       instructions: body,
       nextOffset: w.nextOffset,
       files: r.files.filter((f) => f.path !== SKILL_MD).map((f) => ({ path: f.path, size: f.size })),
-      note: "附檔可用 skill_load 並指定 path 讀取。此環境無法直接執行 Skill 內的腳本；需要時請把邏輯改用可用的工具完成。",
+      note: SCRIPT_NOTE,
     };
   },
 };
@@ -98,7 +106,7 @@ export const skillWriteTool: Tool = {
   },
   targets: (args: any) => ({ paths: [`skills/${String(args?.name ?? "")}/${typeof args?.path === "string" && args.path ? args.path : SKILL_MD}`] }),
   async execute(args, ctx) {
-    const store = storeOf(ctx);
+    const store = await storeOf(ctx);
     const name = String(args?.name ?? "").trim();
     const path = typeof args?.path === "string" && args.path.trim() ? args.path.trim().replace(/^\.\//, "") : SKILL_MD;
     if (typeof args?.content !== "string") throw new Error("content 必須是字串");

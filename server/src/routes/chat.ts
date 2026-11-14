@@ -9,12 +9,12 @@
  *   POST /api/internal/runs/:id/drive    HMAC-signed background driver (Netlify background fn / CF waitUntil chain)
  */
 import type { Hono } from "hono";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import type { AgentEvent, ApprovalDecision, Part, RunStatus } from "@edgemind/shared";
-import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
+import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import type { AgentEvent, ApprovalDecision, ClientToolResult, Part, RunStatus } from "@edgemind/shared";
+import { CODE_OUTPUT_CAP, TERMINAL_RUN_STATUSES } from "@edgemind/shared";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { runInBackground } from "../context";
-import { auditLogs, conversations, messages, models, projects, providers, runSteps, runs, settings, toolApprovals } from "../db/schema";
+import { auditLogs, conversations, files as files_, messages, models, projects, providers, runSteps, runs, settings, toolApprovals } from "../db/schema";
 import { BadInput } from "../lib/errors";
 import { hmacHex, timingSafeEqual } from "../lib/crypto";
 import { aiBinding } from "./kb";
@@ -23,6 +23,8 @@ import { appendStep, getRun, insertMessage, STALE_LEASE_MS, toMessageDTO, transi
 import { builtinRegistry } from "../agent/tools";
 import { extractMemories } from "../memory";
 import { fileStore } from "./files";
+import { ensureBuiltinSkills } from "../skills/builtin";
+import { SkillStore } from "../skills/store";
 import { isPermissionMode } from "../agent/permissions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -113,6 +115,37 @@ async function lastSeq(c: Ctx, runId: string): Promise<number> {
   return Number(r?.n ?? 0);
 }
 
+const str = (v: unknown, max: number): string | undefined => (typeof v === "string" ? (v.length > max ? `${v.slice(0, max)}\n…[已截斷]` : v) : undefined);
+
+/** Validate / cap what the browser reports (never trust its sizes). File ids must exist. */
+async function sanitizeClientResult(c: Ctx, raw: any): Promise<ClientToolResult> {
+  if (!raw || typeof raw !== "object") throw new BadInput("缺少 result");
+  const cap = CODE_OUTPUT_CAP + 500;
+  const fileList = (v: unknown) => (Array.isArray(v) ? v.slice(0, 100) : [])
+    .filter((f: any) => f && typeof f.path === "string" && isUuid(f.fileId))
+    .map((f: any) => ({ path: f.path.slice(0, 500), fileId: f.fileId as string, size: Number.isFinite(f.size) ? Number(f.size) : 0, ...(f.kind === "figure" ? { kind: "figure" as const } : {}) }));
+  let files = fileList(raw.files);
+  const full = raw.fullOutput && typeof raw.fullOutput.path === "string" && isUuid(raw.fullOutput.fileId) ? { path: raw.fullOutput.path.slice(0, 500), fileId: raw.fullOutput.fileId as string } : null;
+  const ids = [...files.map((f) => f.fileId), ...(full ? [full.fileId] : [])];
+  const known = ids.length ? new Set((await c.get("database").db.select({ id: files_.id }).from(files_).where(inArray(files_.id, ids))).map((r) => r.id)) : new Set<string>();
+  files = files.filter((f) => known.has(f.fileId));
+  return {
+    ok: raw.ok === true,
+    stdout: str(raw.stdout, cap) ?? "",
+    stderr: str(raw.stderr, cap) ?? "",
+    result: str(raw.result, cap) ?? null,
+    error: str(raw.error, 10_000) ?? null,
+    ...(Number.isFinite(raw.durationMs) ? { durationMs: Math.round(raw.durationMs) } : {}),
+    ...(raw.stdoutTruncated ? { stdoutTruncated: true } : {}),
+    ...(raw.stderrTruncated ? { stderrTruncated: true } : {}),
+    ...(full && known.has(full.fileId) ? { fullOutput: full } : {}),
+    ...(files.length ? { files } : {}),
+    ...(Array.isArray(raw.notSaved) && raw.notSaved.length
+      ? { notSaved: raw.notSaved.slice(0, 100).filter((n: any) => typeof n?.path === "string").map((n: any) => ({ path: n.path.slice(0, 500), reason: String(n.reason ?? "").slice(0, 300) })) }
+      : {}),
+  };
+}
+
 export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
   const registry = deps.tools ?? builtinRegistry();
   const segmentBudget = deps.platform?.segment ?? DEFAULT_SEGMENT;
@@ -198,6 +231,8 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") throw new BadInput("請求格式錯誤");
     const database = c.get("database");
+    // Bundled skills (e2b-sandbox, self-hosted-runner) are installed on first use; memoized per isolate.
+    await ensureBuiltinSkills(new SkillStore(database, fileStore(c, deps).s3));
     const db = database.db;
 
     // ----- continue / resume an existing run -----
@@ -336,17 +371,19 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
   });
 
   /** Record a decision (approval or ask_user answer) and resume the run when nothing else is pending. */
-  async function decide(c: Ctx, id: string, toolCallId: unknown, kind: "approval" | "question", decision: ApprovalDecision, answer?: string) {
+  async function decide(c: Ctx, id: string, toolCallId: unknown, kind: "approval" | "question" | "client", decision: ApprovalDecision, answer?: unknown) {
     if (typeof toolCallId !== "string") throw new BadInput("缺少 toolCallId");
     const database = c.get("database");
     const db = database.db;
     const run = await getRun(database, id);
     if (!run) return c.json({ error: "not_found", message: "找不到執行紀錄" }, 404);
-    const [appr] = await db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolCallId, toolCallId))).limit(1);
-    if (!appr) return c.json({ error: "not_found", message: kind === "question" ? "找不到待回答的問題" : "找不到待批准的工具呼叫" }, 404);
+    const kindFilter = kind === "client" ? eq(toolApprovals.kind, "client") : ne(toolApprovals.kind, "client");
+    const [appr] = await db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolCallId, toolCallId), kindFilter)).limit(1);
+    if (!appr) return c.json({ error: "not_found", message: kind === "question" ? "找不到待回答的問題" : kind === "client" ? "找不到待執行的瀏覽器端工具" : "找不到待批准的工具呼叫" }, 404);
     if (appr.status !== "pending") return c.json({ error: "conflict", message: "此工具呼叫已經處理過" }, 409);
     if (appr.kind === "question" && kind === "approval" && decision !== "deny") throw new BadInput("這是提問，請用 /answers 回答（或拒絕以略過）");
     if (appr.kind !== "question" && kind === "question") throw new BadInput("這不是提問");
+    if (kind !== "client" && appr.kind === "client") throw new BadInput("這是瀏覽器端工具，請用 /client-results 回傳結果");
     const status = decision === "deny" ? "denied" : "approved";
     const scope = decision === "allow_conversation" ? "conversation" : "once";
     await db.update(toolApprovals).set({ status, scope, decidedAt: new Date(), ...(answer !== undefined ? { answer } : {}) }).where(eq(toolApprovals.id, appr.id));
@@ -355,7 +392,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
       await db.update(toolApprovals).set({ status: "approved", scope: "conversation", decidedAt: new Date() })
         .where(and(eq(toolApprovals.runId, id), eq(toolApprovals.toolName, appr.toolName), eq(toolApprovals.status, "pending"), eq(toolApprovals.kind, "approval")));
     }
-    await db.insert(auditLogs).values({ action: appr.kind === "question" ? "ask_user_answer" : "tool_approval", runId: id, conversationId: run.conversationId, toolName: appr.toolName, decision: status, detail: { toolCallId: appr.toolCallId, scope } });
+    await db.insert(auditLogs).values({ action: appr.kind === "question" ? "ask_user_answer" : appr.kind === "client" ? "client_tool_result" : "tool_approval", runId: id, conversationId: run.conversationId, toolName: appr.toolName, decision: status, detail: { toolCallId: appr.toolCallId, scope } });
     await appendStep(database, id, "approval", { approvalId: appr.id, toolCallId: appr.toolCallId, toolName: appr.toolName, status, scope, kind: appr.kind });
     const remaining = await pendingApprovals(database, id, registry);
     let runStatus = run.status as RunStatus;
@@ -383,6 +420,17 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     if (typeof body?.answer !== "string" || !body.answer.trim()) throw new BadInput("請輸入回答");
     if (body.answer.length > 20_000) throw new BadInput("回答過長");
     return decide(c, id, body?.toolCallId, "question", "allow_once", body.answer.trim());
+  });
+
+  /** Result of a client-side tool (code_run python executed by the browser in Pyodide), or a cancel. */
+  app.post("/runs/:id/client-results", async (c) => {
+    const id = c.req.param("id");
+    if (!isUuid(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") throw new BadInput("請求格式錯誤");
+    if (body.cancel === true) return decide(c, id, body.toolCallId, "client", "deny");
+    const result = await sanitizeClientResult(c, body.result);
+    return decide(c, id, body.toolCallId, "client", "allow_once", result);
   });
 
   app.get("/conversations/:id/messages", async (c) => {

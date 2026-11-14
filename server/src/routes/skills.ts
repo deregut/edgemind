@@ -14,6 +14,7 @@
  *   GET/PUT /api/settings/github               { configured } / { token | null }  (encrypted, for private repos & rate limits)
  */
 import type { Hono } from "hono";
+import { ensureBuiltinSkills } from "../skills/builtin";
 import { eq } from "drizzle-orm";
 import { skills } from "../db/schema";
 import type { SkillDetailDTO, SkillImportResult } from "@edgemind/shared";
@@ -78,7 +79,11 @@ export function mountSkills(app: Hono<HonoEnv>, deps: AppDeps) {
     throw e;
   };
 
-  app.get("/skills", async (c) => c.json((await skillStore(c, deps).list()).map(toSkillDTO)));
+  app.get("/skills", async (c) => {
+    const store = skillStore(c, deps);
+    await ensureBuiltinSkills(store);
+    return c.json((await store.list()).map(toSkillDTO));
+  });
 
   app.post("/skills", async (c) => {
     const body = await c.req.json().catch(() => null);

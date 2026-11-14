@@ -417,3 +417,18 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: createdAt(),
 }, (t) => [index("audit_logs_time_idx").on(t.createdAt)]);
 
+
+// ---------- secrets vault (M11a) ----------
+
+/** Named secrets for http_request `{{secret:NAME}}` injection; values AES-GCM encrypted (AAD `secret:{id}`), never shown to the model. */
+export const secrets = pgTable("secrets", {
+  id: id(),
+  name: text("name").notNull(),
+  valueEnc: text("value_enc").notNull(),
+  valuePreview: text("value_preview"),
+  /** Hostnames the secret may be sent to; `*.example.com` matches any subdomain. Empty = unusable. */
+  allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull().default([]),
+  description: text("description").notNull().default(""),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [uniqueIndex("secrets_name_uq").on(t.name)]);

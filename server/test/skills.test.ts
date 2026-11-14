@@ -120,7 +120,7 @@ describe("skills API", () => {
     expect((await c.req("DELETE", `/skills/${id}`)).status).toBe(200);
     expect([...s3.objects.keys()].some((k) => k.includes(`skills/${id}/`))).toBe(false);
     const list = await c.get("/skills");
-    expect(list.body.map((s: any) => s.name)).toEqual(["other-skill"]);
+    expect(list.body.map((s: any) => s.name).filter((n: string) => !["e2b-sandbox", "self-hosted-runner"].includes(n))).toEqual(["other-skill"]);
     await c.req("DELETE", `/skills/${list.body[0].id}`);
   });
 

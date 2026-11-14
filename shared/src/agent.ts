@@ -38,8 +38,8 @@ export interface PendingApprovalDTO {
   args: unknown;
   risk: RiskLevel | "unknown";
   reason: string;
-  /** "question" = ask_user (answer instead of allow/deny). Default "approval". */
-  kind?: "approval" | "question";
+  /** "question" = ask_user (answer instead of allow/deny); "client" = client-side tool (code_run python in the browser), the web app executes it and POSTs /runs/:id/client-results. Default "approval". */
+  kind?: "approval" | "question" | "client";
 }
 
 export interface StoredMessageDTO {

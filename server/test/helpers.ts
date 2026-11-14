@@ -3,6 +3,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "../src/db/schema";
 import type { AppDb, Database } from "../src/db/client";
 import type { AppEnv } from "../src/env";
+import { useNodeQuickJS } from "../src/sandbox/quickjs-node";
+
+useNodeQuickJS();
 
 export const ADMIN_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres@127.0.0.1:54329/postgres";
 

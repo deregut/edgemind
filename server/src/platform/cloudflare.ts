@@ -4,6 +4,18 @@
  */
 import { createApp } from "../app";
 import { createNeonDatabase } from "../db/client";
+import { newVariant } from "quickjs-emscripten-core";
+import wasmfileVariant from "@jitl/quickjs-wasmfile-release-sync";
+import { loaderFromVariant, setQuickJSLoader } from "../sandbox/quickjs";
+
+/**
+ * QuickJS on workerd: compiling wasm from bytes is forbidden, so functions/[[path]].ts imports the .wasm file as a
+ * module (wrangler → WebAssembly.Module) and hands it over here; the wasmfile variant's emscripten loader resolves to
+ * its `workerd` build through the export conditions.
+ */
+export function useQuickJSWasmModule(wasmModule: WebAssembly.Module) {
+  setQuickJSLoader(loaderFromVariant(newVariant(wasmfileVariant, { wasmModule })));
+}
 
 export interface PagesContext {
   request: Request;

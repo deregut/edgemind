@@ -13,6 +13,8 @@ import { memoryTools } from "../tools/memory";
 import { askUserTool, todoTool } from "../tools/misc";
 import { kbSearchTool } from "../tools/kb";
 import { skillTools } from "../tools/skills";
+import { codeRunTool } from "../tools/code";
+import { httpRequestTool } from "../tools/http";
 import type { AiBinding } from "../providers/probe";
 
 export interface ToolContext {
@@ -28,6 +30,17 @@ export interface ToolContext {
   storage?: FileStore;
   /** Cloudflare Workers AI binding (CF deployments with an AI binding). */
   ai?: AiBinding | null;
+  /** Id of the tool call being executed. */
+  callId?: string;
+  /** Epoch ms after which the segment aborts in-flight work (undefined = no hard deadline). */
+  deadline?: number;
+}
+
+/** Thrown by a tool that cannot finish before the segment deadline: the loop pauses and runs it in the next segment. */
+export class ToolDeferred extends Error {
+  constructor(message = "deferred to the next segment") {
+    super(message);
+  }
 }
 
 export interface ToolTargets {
@@ -44,6 +57,20 @@ export interface Tool {
   projectOnly?: boolean;
   /** Pauses the run for user input (ask_user); bypasses the permission gate. */
   interactive?: boolean;
+  /**
+   * Client-side execution for these args (code_run python → Pyodide in the browser): after the permission gate the
+   * run pauses with a `client` pending item; the web app executes it and POSTs the result. Not possible in background mode.
+   */
+  clientSide?(args: any): boolean;
+  /** Builds the args stored for the browser (e.g. resolved file mounts). Default: the call's args. */
+  prepareClient?(args: any, ctx: ToolContext): Promise<unknown>;
+  /** Tool error returned when a client-side call happens in a background run (no browser). */
+  clientUnavailable?: string;
+  /**
+   * Side effects must not repeat: before executing, the loop looks for an already-recorded result of this call in
+   * run_steps (e.g. after a crash between recording and checkpointing) and reuses it.
+   */
+  nonIdempotent?: boolean;
   /** Permission-relevant targets of a call. Default: `path`/`paths`/`url`/`urls` args. */
   targets?(args: any): ToolTargets;
   execute(args: any, ctx: ToolContext): Promise<unknown>;
@@ -136,5 +163,5 @@ export const getTimeTool: Tool = {
 };
 
 export function builtinRegistry(): ToolRegistry {
-  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, todoTool, askUserTool);
+  return new ToolRegistry().register(echoTool, getTimeTool, webSearchTool, webFetchTool, ...fileTools, ...memoryTools, kbSearchTool, ...skillTools, codeRunTool, httpRequestTool, todoTool, askUserTool);
 }

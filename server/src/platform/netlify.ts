@@ -6,6 +6,9 @@ import { createApp } from "../app";
 import { createNeonDatabase } from "../db/client";
 import { ENV_KEYS } from "../env";
 import type { Platform } from "../context";
+import { useNodeQuickJS } from "../sandbox/quickjs-node";
+
+useNodeQuickJS();
 
 interface NetlifyContext {
   waitUntil?: (p: Promise<unknown>) => void;

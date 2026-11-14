@@ -4,6 +4,7 @@
  */
 import { attachedCollections } from "../rag/kb";
 import { skillsSection as defaultSkillsSection } from "../tools/skills";
+import { secretsSection } from "../secrets";
 import { asc, eq } from "drizzle-orm";
 import type { Message } from "@edgemind/shared";
 import type { Database } from "../db/client";
@@ -77,6 +78,9 @@ export async function assembleContext(database: Database, conversationId: string
     ? await hooks.skillsSection({ conversationId, projectId })
     : await defaultSkillsSection(database, projectId).catch(() => "");
   if (skills.trim()) sections.push(`# 可用的 Skills\n${skills.trim()}`);
+
+  const vault = await secretsSection(database).catch(() => "");
+  if (vault) sections.push(`# 密鑰\n${vault}`);
 
   const lastUser = [...history].reverse().find((m) => m.role === "user");
   const query = lastUser?.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n") ?? "";

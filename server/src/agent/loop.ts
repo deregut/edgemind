@@ -12,11 +12,11 @@
  * History stays provider-valid: every assistant tool_call gets a tool_result (denied / stopped calls get an
  * error result), and each model step / tool batch is its own message row chained by parent_id.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { AgentEvent, ChatRequest, PendingApprovalDTO, PermissionMode, RunStatus } from "@edgemind/shared";
 import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
 import type { Database } from "../db/client";
-import { auditLogs, projects, toolApprovals, usageLogs } from "../db/schema";
+import { auditLogs, projects, runSteps, toolApprovals, usageLogs } from "../db/schema";
 import { costOf, getFullModeCaps, getModelPrices } from "../lib/settings";
 import { AssistantBuilder, resolveModel, streamChat, type Fetch, type ResolvedModel, type RetryOptions } from "../llm";
 import { assembleContext, type ContextHooks } from "./context";
@@ -27,7 +27,7 @@ import {
   appendStep, claimRun, getRun, heartbeat, insertMessage, saveRun, toMessageDTO, transition, STALE_LEASE_MS,
   type Checkpoint, type PendingTools, type RunRow,
 } from "./store";
-import type { Tool, ToolRegistry } from "./tools";
+import { ToolDeferred, type Tool, type ToolContext, type ToolRegistry } from "./tools";
 import { resolveFilePart, type FileStore } from "../storage/files";
 import type { Message, Part } from "@edgemind/shared";
 
@@ -113,8 +113,8 @@ export async function pendingApprovals(database: Database, runId: string, regist
     toolName: r.toolName,
     args: r.args,
     risk: registry?.get(r.toolName)?.risk ?? mcp.get(r.toolName) ?? "unknown",
-    reason: r.kind === "question" ? "等待你的回答" : "需要你的批准",
-    kind: r.kind === "question" ? ("question" as const) : ("approval" as const),
+    reason: r.kind === "question" ? "等待你的回答" : r.kind === "client" ? "等待瀏覽器執行" : "需要你的批准",
+    kind: r.kind === "question" ? ("question" as const) : r.kind === "client" ? ("client" as const) : ("approval" as const),
   }));
 }
 
@@ -312,6 +312,20 @@ async function segmentBody(
   };
 
   const saveCp = () => saveRun(db, runId, { checkpoint: cp, stepCount });
+  const segmentStart = Date.now() - elapsed();
+  const deadline = opts.hardMs !== undefined ? segmentStart + opts.hardMs : undefined;
+  const toolCtx = (callId: string): ToolContext => ({
+    runId, conversationId, projectId, signal: workSignal, database: db, encKey: env.encKey,
+    fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage, ai: env.ai, callId, deadline,
+  });
+  /** A result already recorded in run_steps for this call (crash between recording and checkpointing). */
+  const recordedResult = async (callId: string): Promise<{ result: unknown; isError?: boolean } | undefined> => {
+    const [row] = await db.db.select({ payload: runSteps.payload }).from(runSteps)
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.kind, "tool_result"), sql`${runSteps.payload}->>'callId' = ${callId}`)).limit(1);
+    if (!row) return undefined;
+    const pl = row.payload as { result: unknown; isError?: boolean };
+    return { result: pl.result, ...(pl.isError ? { isError: true } : {}) };
+  };
 
   let modelStepsThisSegment = 0;
   const fileCache = new Map<string, Part>();
@@ -332,6 +346,42 @@ async function segmentBody(
       const toRun: { call: PendingTools["calls"][number]; tool: Tool; decision: string }[] = [];
       const setResult = (id: string, result: unknown, isError?: boolean) => {
         p.results[id] = { result, ...(isError ? { isError: true } : {}) };
+      };
+      /** Permission granted: run server-side, or hand a client-side call (code_run python) to the browser. */
+      const allowRun = async (call: PendingTools["calls"][number], tool: Tool, decision: string) => {
+        if (!tool.clientSide?.(call.args)) {
+          toRun.push({ call, tool, decision });
+          return;
+        }
+        const finish = async (result: unknown, isError: boolean, auditDecision: string) => {
+          setResult(call.id, result, isError);
+          await audit(call.name, auditDecision, { callId: call.id, args: call.args, isError, mode, clientSide: true });
+          await appendStep(db, runId, "tool_result", { callId: call.id, name: call.name, isError, result });
+          emit({ type: "tool-result", callId: call.id, name: call.name, result, isError });
+        };
+        const prior = await recordedResult(call.id);
+        if (prior) return finish(prior.result, !!prior.isError, "reused");
+        if (run.mode === "background") return finish(tool.clientUnavailable ?? "此工具需要開啟中的瀏覽器分頁，背景模式無法執行。", true, decision);
+        const [cl] = await db.db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, runId), eq(toolApprovals.toolCallId, call.id), eq(toolApprovals.kind, "client"))).limit(1);
+        if (!cl) {
+          let clientArgs: unknown;
+          try {
+            clientArgs = tool.prepareClient ? await tool.prepareClient(call.args, toolCtx(call.id)) : call.args;
+          } catch (e) {
+            return finish(`工具執行失敗：${errMsg(e)}`, true, decision);
+          }
+          const [row] = await db.db.insert(toolApprovals).values({ runId, conversationId, toolCallId: call.id, toolName: call.name, args: clientArgs as object, kind: "client" }).returning();
+          await audit(call.name, decision, { callId: call.id, args: call.args, mode, clientSide: true });
+          await appendStep(db, runId, "approval", { approvalId: row.id, toolCallId: call.id, toolName: call.name, args: clientArgs, status: "pending", kind: "client" });
+          waiting.push({ id: row.id, toolCallId: call.id, toolName: call.name, args: clientArgs, risk: tool.risk, reason: "等待瀏覽器執行", kind: "client" });
+        } else if (cl.status === "pending") {
+          waiting.push({ id: cl.id, toolCallId: call.id, toolName: call.name, args: cl.args, risk: tool.risk, reason: "等待瀏覽器執行", kind: "client" });
+        } else if (cl.status === "approved") {
+          const ans = cl.answer as { ok?: boolean } | null;
+          await finish(ans ?? { ok: false, error: "瀏覽器沒有回傳結果" }, !ans || ans.ok === false, "client_result");
+        } else {
+          await finish("使用者取消了瀏覽器端執行。", true, "client_cancelled");
+        }
       };
       for (const call of p.calls) {
         if (p.results[call.id]) continue;
@@ -376,7 +426,7 @@ async function segmentBody(
         }
         const g = evaluate({ mode, toolName: tool.name, risk: tool.risk, targets: registry.targetsOf(tool, call.args), policies, grants });
         if (g.decision === "allow") {
-          toRun.push({ call, tool, decision: g.source === "grant" ? "allow_grant" : "allow" });
+          await allowRun(call, tool, g.source === "grant" ? "allow_grant" : "allow");
         } else if (g.decision === "deny") {
           const msg = `權限禁止執行 ${call.name}：${g.reason}`;
           setResult(call.id, msg, true);
@@ -384,7 +434,7 @@ async function segmentBody(
           await appendStep(db, runId, "tool_result", { callId: call.id, name: call.name, isError: true, result: msg });
           emit({ type: "tool-result", callId: call.id, name: call.name, result: msg, isError: true });
         } else {
-          const [appr] = await db.db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, runId), eq(toolApprovals.toolCallId, call.id))).limit(1);
+          const [appr] = await db.db.select().from(toolApprovals).where(and(eq(toolApprovals.runId, runId), eq(toolApprovals.toolCallId, call.id), ne(toolApprovals.kind, "client"))).limit(1);
           if (!appr) {
             const [row] = await db.db.insert(toolApprovals).values({ runId, conversationId, toolCallId: call.id, toolName: call.name, args: call.args as object }).returning();
             await audit(call.name, "ask", { callId: call.id, args: call.args, reason: g.reason, mode });
@@ -392,7 +442,7 @@ async function segmentBody(
             waiting.push({ id: row.id, toolCallId: call.id, toolName: call.name, args: call.args, risk: tool.risk, reason: g.reason });
           } else if (appr.status === "approved") {
             if (appr.scope === "conversation") grants.add(call.name);
-            toRun.push({ call, tool, decision: "approved" });
+            await allowRun(call, tool, "approved");
           } else if (appr.status === "denied") {
             const msg = "使用者拒絕執行此工具。";
             setResult(call.id, msg, true);
@@ -406,17 +456,28 @@ async function segmentBody(
       }
 
       // Parallel execution of everything allowed.
+      let deferred = false;
       await Promise.all(
         toRun.map(async ({ call, tool, decision }) => {
           const started = Date.now();
           let result: unknown;
           let isError = false;
+          if (tool.nonIdempotent) {
+            const prior = await recordedResult(call.id);
+            if (prior) {
+              // Already executed in an earlier (interrupted) segment: never repeat its side effects.
+              setResult(call.id, prior.result, prior.isError);
+              emit({ type: "tool-result", callId: call.id, name: call.name, result: prior.result, isError: prior.isError });
+              return;
+            }
+          }
           try {
-            result = await tool.execute(call.args, {
-              runId, conversationId, projectId, signal: workSignal, database: db, encKey: env.encKey,
-              fetch: env.fetch ?? ((...a) => fetch(...a)), storage: env.storage, ai: env.ai,
-            });
+            result = await tool.execute(call.args, toolCtx(call.id));
           } catch (e) {
+            if (e instanceof ToolDeferred) {
+              deferred = true; // not enough time left in this segment: run it in the next one
+              return;
+            }
             if (workSignal.aborted) return; // re-run next segment (deadline) or flushed as stopped
             result = `工具執行失敗：${errMsg(e)}`;
             isError = true;
@@ -431,7 +492,7 @@ async function segmentBody(
       await saveCp();
 
       if (stopSignal.aborted) return finalizeStopped();
-      if (deadlineSignal.aborted) return pause("deadline");
+      if (deadlineSignal.aborted || deferred) return pause("deadline");
       if (waiting.length) {
         const ok = await transition(db, runId, ["running"], { status: "waiting_approval", checkpoint: cp, stepCount });
         if (!ok) return finalizeStopped();

@@ -6,7 +6,7 @@ export interface SkillFileDTO {
   mime: string;
 }
 
-export type SkillSource = "upload" | "editor" | "github" | "model";
+export type SkillSource = "upload" | "editor" | "github" | "model" | "builtin";
 
 export interface SkillDTO {
   id: string;

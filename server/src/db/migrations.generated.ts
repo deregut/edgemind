@@ -145,5 +145,13 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "ALTER TABLE \"conversations\" ADD COLUMN \"summary_up_to\" uuid;",
    "ALTER TABLE \"conversations\" ADD COLUMN \"summary_updated_at\" timestamp with time zone;"
   ]
+ },
+ {
+  "tag": "0007_woozy_masque",
+  "hash": "9d9980f9fa33601b3cebb66c9713f099883cbf4e9f16b310decbeb494c744135",
+  "statements": [
+   "CREATE TABLE \"secrets\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"value_enc\" text NOT NULL,\n\t\"value_preview\" text,\n\t\"allowed_domains\" jsonb DEFAULT '[]'::jsonb NOT NULL,\n\t\"description\" text DEFAULT '' NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+   "CREATE UNIQUE INDEX \"secrets_name_uq\" ON \"secrets\" USING btree (\"name\");"
+  ]
  }
 ];
