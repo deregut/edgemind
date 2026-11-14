@@ -102,3 +102,10 @@ export function maskSecret(s: string): string {
   if (s.length <= 8) return "•".repeat(Math.max(4, s.length));
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
+
+/** HMAC-SHA256 → hex (internal request signing, e.g. background run drive tokens). */
+export async function hmacHex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(message)));
+  return [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

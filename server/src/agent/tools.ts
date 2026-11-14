@@ -1,0 +1,113 @@
+/**
+ * Tool registry. Every tool declares a risk level (read / write / dangerous / external) used by the permission
+ * gate, a JSON-schema for its arguments, and optionally the permission-relevant targets (paths, domains) of a
+ * call so rules like `file_write → docs/**` or `http_request → api.example.com` can be enforced.
+ * Real tools (web, files, memory …) arrive in M6; MCP tools register here in M9.
+ */
+import type { RiskLevel, ToolDef } from "@edgemind/shared";
+import type { Database } from "../db/client";
+
+export interface ToolContext {
+  runId: string;
+  conversationId: string;
+  projectId: string | null;
+  signal: AbortSignal;
+  database: Database;
+}
+
+export interface ToolTargets {
+  paths?: string[];
+  domains?: string[];
+}
+
+export interface Tool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  risk: RiskLevel;
+  /** Permission-relevant targets of a call. Default: `path`/`paths`/`url`/`urls` args. */
+  targets?(args: any): ToolTargets;
+  execute(args: any, ctx: ToolContext): Promise<unknown>;
+}
+
+const hostOf = (u: unknown): string[] => {
+  if (typeof u !== "string") return [];
+  try {
+    return [new URL(u).hostname.toLowerCase()];
+  } catch {
+    return [];
+  }
+};
+
+export function defaultTargets(args: any): ToolTargets {
+  const t: ToolTargets = {};
+  if (!args || typeof args !== "object") return t;
+  const paths = [args.path, ...(Array.isArray(args.paths) ? args.paths : [])].filter((p) => typeof p === "string");
+  const domains = [...hostOf(args.url), ...(Array.isArray(args.urls) ? args.urls.flatMap(hostOf) : [])];
+  if (paths.length) t.paths = paths;
+  if (domains.length) t.domains = domains;
+  return t;
+}
+
+export class ToolRegistry {
+  private tools = new Map<string, Tool>();
+
+  register(...tools: Tool[]): this {
+    for (const t of tools) {
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(t.name)) throw new Error(`invalid tool name: ${t.name}`);
+      this.tools.set(t.name, t);
+    }
+    return this;
+  }
+
+  get(name: string): Tool | undefined {
+    return this.tools.get(name);
+  }
+
+  list(): Tool[] {
+    return [...this.tools.values()];
+  }
+
+  targetsOf(tool: Tool, args: unknown): ToolTargets {
+    return (tool.targets ?? defaultTargets)(args);
+  }
+
+  /** Tool definitions for the model, filtered (e.g. plan mode → read tools only). */
+  defs(filter: (t: Tool) => boolean = () => true): ToolDef[] {
+    return this.list().filter(filter).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+  }
+}
+
+// ---------------- trivial built-ins (testing / smoke) ----------------
+
+export const echoTool: Tool = {
+  name: "echo",
+  description: "回傳輸入的文字（測試用）。",
+  parameters: { type: "object", properties: { text: { type: "string", description: "要回傳的文字" } }, required: ["text"] },
+  risk: "read",
+  async execute(args) {
+    return { text: String(args?.text ?? "") };
+  },
+};
+
+export const getTimeTool: Tool = {
+  name: "get_time",
+  description: "取得目前時間（ISO 8601），可指定 IANA 時區，例如 Asia/Taipei。",
+  parameters: { type: "object", properties: { tz: { type: "string", description: "IANA 時區" } } },
+  risk: "read",
+  async execute(args) {
+    const tz = typeof args?.tz === "string" && args.tz ? args.tz : "UTC";
+    const now = new Date();
+    let local: string;
+    try {
+      local = new Intl.DateTimeFormat("sv-SE", { timeZone: tz, dateStyle: "short", timeStyle: "medium" }).format(now);
+    } catch {
+      throw new Error(`未知的時區：${tz}`);
+    }
+    return { iso: now.toISOString(), timeZone: tz, local };
+  },
+};
+
+export function builtinRegistry(): ToolRegistry {
+  return new ToolRegistry().register(echoTool, getTimeTool);
+}

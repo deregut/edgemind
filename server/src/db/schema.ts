@@ -164,7 +164,7 @@ export const runs = pgTable("runs", {
   id: id(),
   conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
   userMessageId: uuid("user_message_id"),
-  status: text("status").notNull().default("running"), // running | waiting_approval | paused | completed | failed | stopped
+  status: text("status").notNull().default("running"), // pending | running | paused | waiting_approval | stopping | completed | failed | stopped (see agent/loop.ts)
   mode: text("mode").notNull().default("stream"), // stream | background
   modelId: uuid("model_id"),
   permissionMode: text("permission_mode"),
@@ -182,7 +182,7 @@ export const runSteps = pgTable("run_steps", {
   id: id(),
   runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
   seq: integer("seq").notNull(),
-  kind: text("kind").notNull(), // model | tool_call | tool_result | approval | continue | error
+  kind: text("kind").notNull(), // message | tool_call | tool_result | approval | continue | error | done
   payload: jsonb("payload").notNull(),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("run_steps_run_seq_uq").on(t.runId, t.seq)]);

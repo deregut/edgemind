@@ -8,6 +8,8 @@ import { APP_VERSION } from "./version";
 import { BadInput } from "./lib/errors";
 import { mountAuth, isAuthenticated, ensureCsrfCookie } from "./routes/auth";
 import { mountProviders } from "./routes/providers";
+import { mountChat } from "./routes/chat";
+import { mountPermissions } from "./routes/permissions";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -83,6 +85,8 @@ export function createApp(deps: AppDeps) {
 
   mountAuth(app);
   mountProviders(app, deps);
+  mountChat(app, deps);
+  mountPermissions(app, deps);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;

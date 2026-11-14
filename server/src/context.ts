@@ -5,6 +5,17 @@ import type { AppEnv } from "./env";
 /** Platform hooks provided by netlify.ts / cloudflare.ts (or tests). */
 export interface Platform {
   name: "netlify" | "cloudflare" | "node" | "test";
+  /** Time budget of one streamed /api/chat segment. Default: soft 50s, hard 57s (Netlify 60s cap). */
+  segment?: { softMs: number; hardMs?: number };
+  /** Time budget of one background drive invocation. */
+  background?: { softMs: number; hardMs?: number };
+  /**
+   * Start (or continue) background execution of a run. Receives a signed internal URL + token.
+   * Default: run in-process via waitUntil (fine for Node / tests).
+   */
+  startBackground?(args: { origin: string; runId: string; token: string; c: Ctx }): Promise<void>;
+  /** When true, the internal drive endpoint runs the run inline (Netlify background function). */
+  driveInline?: boolean;
 }
 
 export interface AppDeps {
@@ -13,6 +24,10 @@ export interface AppDeps {
   /** Outbound fetch for provider calls (mocked in tests). */
   fetch?: typeof fetch;
   platform?: Platform;
+  /** Tool registry for the agent loop (default: built-ins). */
+  tools?: import("./agent/tools").ToolRegistry;
+  /** Agent tuning (tests). */
+  agent?: Partial<Pick<import("./agent/loop").AgentEnv, "heartbeatMs" | "llmRetry" | "hooks" | "maxToolResultChars">>;
 }
 
 export interface HonoEnv {
