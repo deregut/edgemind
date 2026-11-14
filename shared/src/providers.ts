@@ -79,7 +79,14 @@ export const PROVIDER_KINDS: ProviderKindSpec[] = [
   { type: "embedding", kind: "cohere", label: "Cohere", defaultBaseUrl: "https://api.cohere.com", keyRequired: true, canListModels: false, suggestedModels: ["embed-v4.0", "embed-multilingual-v3.0"] },
   { type: "embedding", kind: "mistral", label: "Mistral", defaultBaseUrl: "https://api.mistral.ai/v1", keyRequired: true, canListModels: true, suggestedModels: ["mistral-embed"] },
   { type: "embedding", kind: "openai_compatible", label: "OpenAI 相容", defaultBaseUrl: "", keyRequired: false, canListModels: true },
-  { type: "embedding", kind: "workers_ai", label: "Cloudflare Workers AI", defaultBaseUrl: "https://api.cloudflare.com/client/v4", keyRequired: true, canListModels: false, configFields: [cfAccount], suggestedModels: ["@cf/baai/bge-m3", "@cf/baai/bge-base-en-v1.5"] },
+  {
+    type: "embedding", kind: "workers_ai", label: "Cloudflare Workers AI", defaultBaseUrl: "https://api.cloudflare.com/client/v4", keyRequired: false, canListModels: false,
+    configFields: [
+      { key: "accountId", label: "Cloudflare Account ID（走 REST API 時必填）" },
+      { key: "useBinding", label: "部署在 Cloudflare 且有 AI 綁定時改用綁定（true/false；未填 Token 時自動使用）", placeholder: "false" },
+    ],
+    suggestedModels: ["@cf/baai/bge-m3", "@cf/baai/bge-base-en-v1.5"],
+  },
 
   // Rerank
   { type: "rerank", kind: "jina", label: "Jina Reranker", defaultBaseUrl: "https://api.jina.ai/v1", keyRequired: true, canListModels: false, suggestedModels: ["jina-reranker-v2-base-multilingual"] },

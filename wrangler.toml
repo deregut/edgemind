@@ -4,3 +4,8 @@
 name = "edgemind"
 pages_build_output_dir = "web/dist"
 compatibility_date = "2026-11-01"
+
+# 選用：Workers AI 綁定。啟用後，知識庫的「Cloudflare Workers AI」Embedding 供應商可不填 API Token，
+# 直接透過綁定呼叫（填了 Token 時預設走 REST API；設定 useBinding=true 可強制走綁定）。
+# [ai]
+# binding = "AI"

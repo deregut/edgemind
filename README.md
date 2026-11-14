@@ -72,6 +72,15 @@ npx wrangler pages deploy
 
 （完整部署指南將於 M12 補上。）
 
+## 知識庫（RAG）
+
+- 每個知識庫（全域或專案專屬）綁定一個 Embedding 供應商＋模型＋維度，可選重排序（Jina／Cohere／Voyage）。
+- 上傳：瀏覽器取得預簽名 URL 直傳物件儲存 `kb/{知識庫 id}/`，並在瀏覽器中解析（txt、md、程式碼、csv、json、html、PDF〔pdfjs-dist〕、DOCX〔mammoth〕）與切塊（Markdown 依標題切分，含重疊）；伺服器只接收切塊文字，並以每次 ≤40 秒的批次向量化（符合 Netlify 60 秒限制）。
+- 更換 Embedding 模型或維度會在背景分批重建索引（Netlify Background Function／CF waitUntil 串接；中斷後可從頁面或「繼續索引」接續），期間仍可用全文檢索。
+- 檢索：向量（pgvector）＋全文混合，以 RRF 融合；全文檢索在應用程式端把中日韓文字切成二字詞（bigram）存進 tsvector，解決 Postgres `simple` 設定無法搜尋中文詞的問題（對話搜尋也採用相同做法）。
+- 模型透過 `kb_search` 工具檢索，結果附編號引用、來源檔名與分數；專案內對話自動附加該專案的知識庫與全域知識庫。
+- Cloudflare 部署可在 `wrangler.toml` 啟用 `[ai] binding = "AI"`，讓 Workers AI Embedding 不需 API Token。
+
 ## 安全設計
 
 - 單一管理密碼：PBKDF2-SHA256（100,000 次，Cloudflare Workers 的 WebCrypto 上限）

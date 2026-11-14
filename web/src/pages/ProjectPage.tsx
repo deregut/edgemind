@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ConfirmDialog } from "@/components/PromptDialog";
 import { RiskBadge } from "@/components/chat/Parts";
 import { FileManager } from "@/components/FileManager";
@@ -49,6 +50,7 @@ export function ProjectPage() {
           <TabsTrigger value="settings">設定</TabsTrigger>
           <TabsTrigger value="tools">工具</TabsTrigger>
           <TabsTrigger value="files">檔案</TabsTrigger>
+          <TabsTrigger value="kb">知識庫</TabsTrigger>
         </TabsList>
         <TabsContent value="chats">
           <Card>
@@ -68,6 +70,7 @@ export function ProjectPage() {
         <TabsContent value="settings"><ProjectSettings p={p} onSaved={setP} onDelete={() => setDel(true)} /></TabsContent>
         <TabsContent value="tools"><ProjectTools p={p} onSaved={setP} /></TabsContent>
         <TabsContent value="files"><FileManager projectId={p.id} /></TabsContent>
+        <TabsContent value="kb"><KnowledgeBase projectId={p.id} /></TabsContent>
       </Tabs>
       <ConfirmDialog open={del} onOpenChange={setDel} title="刪除專案？" destructive confirmLabel="刪除"
         description="專案設定與專案檔案會被刪除；專案內的對話會保留並移出專案。"

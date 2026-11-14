@@ -30,11 +30,10 @@ async function sha256Hex(file: Blob): Promise<string | undefined> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function attempt(file: File, target: UploadTarget, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<FileDTO> {
-  const ticket = await api<UploadTicket & { corsWarning?: string }>("/uploads", {
-    method: "POST",
-    body: { ...target, name: file.name, size: file.size, mime: file.type || undefined },
-  });
+export type TicketSource = () => Promise<UploadTicket>;
+
+async function attempt(file: File, getTicket: TicketSource, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<FileDTO> {
+  const ticket = await getTicket();
   try {
     if (ticket.method === "put") {
       await putWithProgress(ticket.url, file, ticket.headers, (l) => onProgress?.(l / Math.max(1, file.size)), signal);
@@ -70,13 +69,20 @@ async function attempt(file: File, target: UploadTarget, onProgress?: (fraction:
 
 /** Upload one file; on a CORS/network failure re-applies bucket CORS for this origin and retries once. */
 export async function uploadFile(file: File, target: UploadTarget, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<FileDTO> {
+  const getTicket: TicketSource = () =>
+    api<UploadTicket>("/uploads", { method: "POST", body: { ...target, name: file.name, size: file.size, mime: file.type || undefined } });
+  return uploadWithTicket(file, getTicket, onProgress, signal);
+}
+
+/** Same as uploadFile, with the presigned ticket coming from any endpoint (e.g. knowledge-base documents). */
+export async function uploadWithTicket(file: File, getTicket: TicketSource, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<FileDTO> {
   try {
-    return await attempt(file, target, onProgress, signal);
+    return await attempt(file, getTicket, onProgress, signal);
   } catch (e) {
     if (!(e instanceof TypeError) || signal?.aborted) throw e;
     await api("/storage/cors", { method: "POST", body: { origin: location.origin } }).catch(() => {});
     try {
-      return await attempt(file, target, onProgress, signal);
+      return await attempt(file, getTicket, onProgress, signal);
     } catch (e2) {
       if (e2 instanceof TypeError) throw new Error("無法直接上傳到物件儲存（可能是 Bucket CORS 未設定），請到 設定 → 儲存空間 檢查。");
       throw e2;
