@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { ProjectSkills } from "@/components/Skills";
+import { ProjectMcp } from "@/components/Mcp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ConfirmDialog } from "@/components/PromptDialog";
@@ -51,6 +52,7 @@ export function ProjectPage() {
           <TabsTrigger value="settings">設定</TabsTrigger>
           <TabsTrigger value="tools">工具</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
+          <TabsTrigger value="mcp">MCP</TabsTrigger>
           <TabsTrigger value="files">檔案</TabsTrigger>
           <TabsTrigger value="kb">知識庫</TabsTrigger>
         </TabsList>
@@ -72,6 +74,7 @@ export function ProjectPage() {
         <TabsContent value="settings"><ProjectSettings p={p} onSaved={setP} onDelete={() => setDel(true)} /></TabsContent>
         <TabsContent value="tools"><ProjectTools p={p} onSaved={setP} /></TabsContent>
         <TabsContent value="skills"><ProjectSkills p={p} onSaved={setP} /></TabsContent>
+        <TabsContent value="mcp"><ProjectMcp p={p} onSaved={setP} /></TabsContent>
         <TabsContent value="files"><FileManager projectId={p.id} /></TabsContent>
         <TabsContent value="kb"><KnowledgeBase projectId={p.id} /></TabsContent>
       </Tabs>

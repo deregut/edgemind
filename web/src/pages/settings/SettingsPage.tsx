@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SkillsSection } from "@/components/Skills";
+import { McpSection } from "@/components/Mcp";
+import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -28,15 +30,25 @@ const TYPE_HELP: Record<ProviderType, string> = {
 };
 
 export function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") ?? "providers";
+  useEffect(() => {
+    const o = params.get("oauth");
+    if (!o) return;
+    if (o === "ok") toast.success("MCP 授權完成");
+    else toast.error(`MCP 授權失敗：${params.get("message") ?? "未知錯誤"}`);
+    setParams({ tab: "mcp" }, { replace: true });
+  }, [params, setParams]);
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-8">
       <h1 className="text-2xl font-semibold">設定</h1>
-      <Tabs defaultValue="providers">
+      <Tabs value={tab} onValueChange={(v) => setParams({ tab: v }, { replace: true })}>
         <TabsList>
           <TabsTrigger value="providers">供應商</TabsTrigger>
           <TabsTrigger value="agent">Agent 與權限</TabsTrigger>
           <TabsTrigger value="kb">知識庫</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
+          <TabsTrigger value="mcp">MCP</TabsTrigger>
           <TabsTrigger value="storage">儲存空間</TabsTrigger>
           <TabsTrigger value="security">帳號安全</TabsTrigger>
           <TabsTrigger value="appearance">外觀</TabsTrigger>
@@ -45,6 +57,7 @@ export function SettingsPage() {
         <TabsContent value="agent"><AgentSettingsSection /></TabsContent>
         <TabsContent value="kb"><KnowledgeBase projectId={null} /></TabsContent>
         <TabsContent value="skills"><SkillsSection /></TabsContent>
+        <TabsContent value="mcp"><McpSection /></TabsContent>
         <TabsContent value="storage"><StorageSection /></TabsContent>
         <TabsContent value="security"><SecuritySection /></TabsContent>
         <TabsContent value="appearance">

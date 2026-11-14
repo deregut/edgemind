@@ -16,7 +16,7 @@ export const callsReply = (cs: { id: string; name: string; args: unknown }[], to
   sse: cs.map((c, i) => chunk({ tool_calls: [{ index: i, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] })).join("") + chunk({}, "tool_calls") + usage(...(tokens ?? [10, 3])) + "data: [DONE]\n\n",
 });
 
-export type Route = (url: URL, init: RequestInit) => Response | Promise<Response> | undefined;
+export type Route = (url: URL, init: RequestInit) => Response | Promise<Response | undefined> | undefined;
 
 export class Harness {
   t!: Awaited<ReturnType<typeof createTestDatabase>>;
