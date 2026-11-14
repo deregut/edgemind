@@ -1,0 +1,362 @@
+/**
+ * EdgeMind database schema (PLAN §8), single-user edition.
+ *
+ * Vector strategy (varying embedding dimensions):
+ *  - `kb_chunks.embedding` and `memories.embedding` are UNTYPED pgvector columns (`vector` with no
+ *    dimension), so any model's output fits. Each row also stores `embedding_dim` + `embedding_model`.
+ *  - HNSW indexes need a fixed dimension, so we create PARTIAL EXPRESSION indexes per dimension at
+ *    runtime (see `db/vector.ts#ensureVectorIndex`):
+ *      CREATE INDEX ... USING hnsw ((embedding::vector(1536)) vector_cosine_ops) WHERE embedding_dim = 1536
+ *    and query with the same cast + `embedding_dim = N` filter so the planner uses it.
+ *    Dimensions > 2000 use `halfvec(N)` (HNSW limit for vector is 2000, halfvec 4000).
+ *  - A kb_collection is bound to one embedding provider/model/dim; changing it triggers a re-index.
+ */
+import { sql } from "drizzle-orm";
+import {
+  pgTable, text, integer, boolean, timestamp, jsonb, uuid, bigint, index, uniqueIndex, customType, real,
+} from "drizzle-orm/pg-core";
+
+/** Untyped pgvector column. Accepts number[] and serializes to '[1,2,3]'. */
+export const vector = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector";
+  },
+  toDriver(v: number[]) {
+    return `[${v.join(",")}]`;
+  },
+  fromDriver(v: string) {
+    return typeof v === "string" ? (JSON.parse(v) as number[]) : (v as unknown as number[]);
+  },
+});
+
+export const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+const id = () => uuid("id").primaryKey().defaultRandom();
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
+
+// ---------- auth (single user) ----------
+
+/** Exactly one row (id = 1) once the owner has set a password. */
+export const users = pgTable("users", {
+  id: integer("id").primaryKey().default(1),
+  passwordHash: text("password_hash").notNull(),
+  /** Bumped on password change; JWTs carrying an older value are rejected. */
+  tokenVersion: integer("token_version").notNull().default(1),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: id(),
+  userAgent: text("user_agent"),
+  ip: text("ip"),
+  createdAt: createdAt(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+/** Failed/successful login attempts for DB-backed rate limiting (serverless has no shared memory). */
+export const loginAttempts = pgTable("login_attempts", {
+  id: id(),
+  ip: text("ip").notNull(),
+  success: boolean("success").notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("login_attempts_ip_time_idx").on(t.ip, t.createdAt)]);
+
+/** Key/value app settings (non-secret, or secret via `secret_enc`). */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value"),
+  secretEnc: text("secret_enc"),
+  updatedAt: updatedAt(),
+});
+
+// ---------- providers & models ----------
+
+export const providers = pgTable("providers", {
+  id: id(),
+  type: text("type").notNull(), // llm | search | embedding | rerank | image
+  kind: text("kind").notNull(), // protocol for llm, vendor for others
+  name: text("name").notNull(),
+  baseUrl: text("base_url").notNull().default(""),
+  apiKeyEnc: text("api_key_enc"),
+  apiKeyPreview: text("api_key_preview"),
+  enabled: boolean("enabled").notNull().default(true),
+  priority: integer("priority").notNull().default(100), // lower = tried first
+  config: jsonb("config").$type<Record<string, string>>().notNull().default({}),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("providers_type_priority_idx").on(t.type, t.priority)]);
+
+export const models = pgTable("models", {
+  id: id(),
+  providerId: uuid("provider_id").notNull().references(() => providers.id, { onDelete: "cascade" }),
+  modelId: text("model_id").notNull(),
+  displayName: text("display_name"),
+  /** { vision, tools, reasoning, ... } manually marked or detected. */
+  capabilities: jsonb("capabilities").$type<Record<string, boolean>>().notNull().default({}),
+  contextLength: integer("context_length"),
+  embeddingDim: integer("embedding_dim"),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("models_provider_model_uq").on(t.providerId, t.modelId)]);
+
+// ---------- projects / conversations ----------
+
+export const projects = pgTable("projects", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  instructions: text("instructions"),
+  defaultModelId: uuid("default_model_id").references(() => models.id, { onDelete: "set null" }),
+  permissionMode: text("permission_mode"), // null = inherit global
+  enabledSkills: jsonb("enabled_skills").$type<string[]>(),
+  enabledMcpServers: jsonb("enabled_mcp_servers").$type<string[]>(),
+  enabledTools: jsonb("enabled_tools").$type<string[]>(),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const conversations = pgTable("conversations", {
+  id: id(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  title: text("title"),
+  modelId: uuid("model_id").references(() => models.id, { onDelete: "set null" }),
+  permissionMode: text("permission_mode"),
+  pinned: boolean("pinned").notNull().default(false),
+  archived: boolean("archived").notNull().default(false),
+  /** Rolling summary for compaction. */
+  summary: text("summary"),
+  /** The leaf message of the active branch. */
+  activeLeafId: uuid("active_leaf_id"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("conversations_updated_idx").on(t.updatedAt), index("conversations_project_idx").on(t.projectId)]);
+
+export type MessagePart =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string; signature?: string }
+  | { type: "tool_call"; id: string; name: string; args: unknown }
+  | { type: "tool_result"; callId: string; name: string; result: unknown; isError?: boolean }
+  | { type: "attachment"; fileId: string; mime: string; name: string };
+
+export const messages = pgTable("messages", {
+  id: id(),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  /** Tree for branching: edit/regenerate creates a sibling. */
+  parentId: uuid("parent_id"),
+  role: text("role").notNull(), // user | assistant | tool | system
+  parts: jsonb("parts").$type<MessagePart[]>().notNull().default([]),
+  modelId: uuid("model_id"),
+  runId: uuid("run_id"),
+  /** Plain text copy for full-text search. */
+  searchText: text("search_text"),
+  createdAt: createdAt(),
+}, (t) => [index("messages_conversation_idx").on(t.conversationId, t.createdAt), index("messages_parent_idx").on(t.parentId)]);
+
+// ---------- runs (agent loop persistence) ----------
+
+export const runs = pgTable("runs", {
+  id: id(),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  userMessageId: uuid("user_message_id"),
+  status: text("status").notNull().default("running"), // running | waiting_approval | paused | completed | failed | stopped
+  mode: text("mode").notNull().default("stream"), // stream | background
+  modelId: uuid("model_id"),
+  permissionMode: text("permission_mode"),
+  stepCount: integer("step_count").notNull().default(0),
+  maxSteps: integer("max_steps").notNull().default(25),
+  /** Serialized loop state for `continue` across ~50s segments. */
+  checkpoint: jsonb("checkpoint"),
+  error: text("error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (t) => [index("runs_conversation_idx").on(t.conversationId)]);
+
+export const runSteps = pgTable("run_steps", {
+  id: id(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+  kind: text("kind").notNull(), // model | tool_call | tool_result | approval | continue | error
+  payload: jsonb("payload").notNull(),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("run_steps_run_seq_uq").on(t.runId, t.seq)]);
+
+export const toolApprovals = pgTable("tool_approvals", {
+  id: id(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  toolCallId: text("tool_call_id").notNull(),
+  toolName: text("tool_name").notNull(),
+  args: jsonb("args"),
+  status: text("status").notNull().default("pending"), // pending | approved | denied
+  scope: text("scope"), // once | conversation
+  createdAt: createdAt(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+});
+
+// ---------- files ----------
+
+export const files = pgTable("files", {
+  id: id(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  scope: text("scope").notNull(), // upload | project | kb | skill | artifact
+  path: text("path").notNull(), // logical path within scope, e.g. docs/a.md
+  s3Key: text("s3_key").notNull(),
+  mime: text("mime"),
+  size: bigint("size", { mode: "number" }).notNull().default(0),
+  sha256: text("sha256"),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("ready"), // pending | ready | deleted
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("files_project_path_idx").on(t.projectId, t.path), uniqueIndex("files_s3key_uq").on(t.s3Key)]);
+
+export const fileVersions = pgTable("file_versions", {
+  id: id(),
+  fileId: uuid("file_id").notNull().references(() => files.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  s3Key: text("s3_key").notNull(),
+  size: bigint("size", { mode: "number" }).notNull().default(0),
+  sha256: text("sha256"),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("file_versions_file_version_uq").on(t.fileId, t.version)]);
+
+// ---------- knowledge base ----------
+
+export const kbCollections = pgTable("kb_collections", {
+  id: id(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  embeddingProviderId: uuid("embedding_provider_id").references(() => providers.id, { onDelete: "set null" }),
+  embeddingModel: text("embedding_model"),
+  embeddingDim: integer("embedding_dim"),
+  /** idle | reindexing | error */
+  indexStatus: text("index_status").notNull().default("idle"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const kbChunks = pgTable("kb_chunks", {
+  id: id(),
+  collectionId: uuid("collection_id").notNull().references(() => kbCollections.id, { onDelete: "cascade" }),
+  fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+  chunkIndex: integer("chunk_index").notNull(),
+  content: text("content").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  embedding: vector("embedding"),
+  embeddingDim: integer("embedding_dim"),
+  embeddingModel: text("embedding_model"),
+  tsv: tsvector("tsv").generatedAlwaysAs(sql`to_tsvector('simple', content)`),
+  createdAt: createdAt(),
+}, (t) => [
+  index("kb_chunks_collection_idx").on(t.collectionId),
+  index("kb_chunks_tsv_idx").using("gin", t.tsv),
+]);
+
+// ---------- memory ----------
+
+export const memories = pgTable("memories", {
+  id: id(),
+  scope: text("scope").notNull(), // global | project | conversation
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  source: text("source").notNull().default("tool"), // tool | auto | user
+  embedding: vector("embedding"),
+  embeddingDim: integer("embedding_dim"),
+  embeddingModel: text("embedding_model"),
+  importance: real("importance"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("memories_scope_idx").on(t.scope, t.projectId)]);
+
+// ---------- skills / MCP ----------
+
+export const skills = pgTable("skills", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  s3Prefix: text("s3_prefix").notNull(),
+  source: text("source").notNull().default("upload"), // upload | editor | github | model
+  sourceUrl: text("source_url"),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [uniqueIndex("skills_name_uq").on(t.name)]);
+
+export const mcpServers = pgTable("mcp_servers", {
+  id: id(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  transport: text("transport").notNull().default("streamable_http"), // streamable_http | sse
+  authType: text("auth_type").notNull().default("none"), // none | bearer | headers | oauth
+  /** Encrypted JSON: headers / bearer / oauth tokens. */
+  authEnc: text("auth_enc"),
+  enabled: boolean("enabled").notNull().default(true),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const mcpTools = pgTable("mcp_tools", {
+  id: id(),
+  serverId: uuid("server_id").notNull().references(() => mcpServers.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  inputSchema: jsonb("input_schema"),
+  enabled: boolean("enabled").notNull().default(true),
+  riskLevel: text("risk_level").notNull().default("dangerous"), // read | write | dangerous | external
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("mcp_tools_server_name_uq").on(t.serverId, t.name)]);
+
+// ---------- permissions ----------
+
+export const toolPolicies = pgTable("tool_policies", {
+  id: id(),
+  scope: text("scope").notNull(), // global | project | conversation
+  scopeId: uuid("scope_id"), // project/conversation id; null for global
+  toolName: text("tool_name").notNull(), // e.g. file_write, mcp:server/tool, *
+  action: text("action").notNull(), // allow | ask | deny
+  /** Optional rule, e.g. { pathGlob: "docs/**" } or { domains: ["api.example.com"] } */
+  rule: jsonb("rule"),
+  createdAt: createdAt(),
+}, (t) => [index("tool_policies_scope_idx").on(t.scope, t.scopeId)]);
+
+// ---------- usage & audit ----------
+
+export const usageLogs = pgTable("usage_logs", {
+  id: id(),
+  providerId: uuid("provider_id"),
+  model: text("model"),
+  runId: uuid("run_id"),
+  kind: text("kind").notNull(), // chat | embedding | rerank | search | image
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  cachedTokens: integer("cached_tokens"),
+  costUsd: real("cost_usd"),
+  createdAt: createdAt(),
+}, (t) => [index("usage_logs_time_idx").on(t.createdAt)]);
+
+export const auditLogs = pgTable("audit_logs", {
+  id: id(),
+  action: text("action").notNull(), // tool_call | login | settings_change | ...
+  runId: uuid("run_id"),
+  conversationId: uuid("conversation_id"),
+  toolName: text("tool_name"),
+  decision: text("decision"), // allow | ask | deny | approved | denied
+  detail: jsonb("detail"),
+  ip: text("ip"),
+  createdAt: createdAt(),
+}, (t) => [index("audit_logs_time_idx").on(t.createdAt)]);
+

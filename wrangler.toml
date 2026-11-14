@@ -1,0 +1,6 @@
+# Cloudflare Pages（次要部署目標）：wrangler pages deploy
+# functions/[[path]].ts 會掛載與 Netlify 相同的 Hono app（只處理 /api/*，其餘交給靜態檔）。
+# 環境變數請在 Pages 專案 Settings → Variables and Secrets 設定（或 wrangler pages secret put）。
+name = "edgemind"
+pages_build_output_dir = "web/dist"
+compatibility_date = "2026-11-01"
