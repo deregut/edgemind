@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SkillsSection } from "@/components/Skills";
 import { McpSection } from "@/components/Mcp";
+import { MemorySection } from "@/components/Memory";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
@@ -49,6 +50,7 @@ export function SettingsPage() {
           <TabsTrigger value="kb">知識庫</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
           <TabsTrigger value="mcp">MCP</TabsTrigger>
+          <TabsTrigger value="memory">記憶</TabsTrigger>
           <TabsTrigger value="storage">儲存空間</TabsTrigger>
           <TabsTrigger value="security">帳號安全</TabsTrigger>
           <TabsTrigger value="appearance">外觀</TabsTrigger>
@@ -58,6 +60,7 @@ export function SettingsPage() {
         <TabsContent value="kb"><KnowledgeBase projectId={null} /></TabsContent>
         <TabsContent value="skills"><SkillsSection /></TabsContent>
         <TabsContent value="mcp"><McpSection /></TabsContent>
+        <TabsContent value="memory"><MemorySection /></TabsContent>
         <TabsContent value="storage"><StorageSection /></TabsContent>
         <TabsContent value="security"><SecuritySection /></TabsContent>
         <TabsContent value="appearance">

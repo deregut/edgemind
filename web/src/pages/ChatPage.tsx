@@ -412,6 +412,27 @@ export function ChatPage() {
     }
   }
 
+  async function compactNow() {
+
+    if (!convId) return;
+
+    try {
+
+      const r = await api<{ compacted: boolean; summarizedMessages?: number }>(`/conversations/${convId}/compact`, { method: "POST" });
+
+      if (r.compacted) toast.success(`已把 ${r.summarizedMessages} 則較早的訊息整理成摘要，之後只會送摘要給模型`);
+
+      else toast.message("對話還很短，不需要壓縮");
+
+    } catch (e) {
+
+      toast.error((e as Error).message);
+
+    }
+
+  }
+
+
   async function exportAs(format: "md" | "json") {
     if (!convId) return;
     const res = await fetch(`/api/conversations/${convId}/export?format=${format}`, { credentials: "same-origin" });
@@ -475,6 +496,7 @@ export function ChatPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => exportAs("md")}>匯出 Markdown</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => exportAs("json")}>匯出 JSON</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => compactNow()}>壓縮較早的對話（摘要）</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}

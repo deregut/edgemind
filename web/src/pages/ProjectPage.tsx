@@ -11,6 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { ProjectSkills } from "@/components/Skills";
 import { ProjectMcp } from "@/components/Mcp";
+import { MemoryList } from "@/components/Memory";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ConfirmDialog } from "@/components/PromptDialog";
@@ -53,6 +54,7 @@ export function ProjectPage() {
           <TabsTrigger value="tools">工具</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
           <TabsTrigger value="mcp">MCP</TabsTrigger>
+          <TabsTrigger value="memory">記憶</TabsTrigger>
           <TabsTrigger value="files">檔案</TabsTrigger>
           <TabsTrigger value="kb">知識庫</TabsTrigger>
         </TabsList>
@@ -75,6 +77,7 @@ export function ProjectPage() {
         <TabsContent value="tools"><ProjectTools p={p} onSaved={setP} /></TabsContent>
         <TabsContent value="skills"><ProjectSkills p={p} onSaved={setP} /></TabsContent>
         <TabsContent value="mcp"><ProjectMcp p={p} onSaved={setP} /></TabsContent>
+        <TabsContent value="memory"><MemoryList projectId={p.id} /></TabsContent>
         <TabsContent value="files"><FileManager projectId={p.id} /></TabsContent>
         <TabsContent value="kb"><KnowledgeBase projectId={p.id} /></TabsContent>
       </Tabs>
