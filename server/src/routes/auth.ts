@@ -11,7 +11,7 @@ import type { Hono, MiddlewareHandler } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
-import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@edgemind/shared";
+import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "../../../shared/src/index";
 import type { Ctx, HonoEnv } from "../context";
 import { clientIp } from "../context";
 import type { AppEnv } from "../env";

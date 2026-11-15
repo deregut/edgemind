@@ -4,7 +4,7 @@
  * chat attachments (`users/1/uploads/{uuid}/{name}`), and resolution of `fileId` message parts for the model.
  */
 import { and, asc, desc, eq, like } from "drizzle-orm";
-import type { FileDTO, Part } from "@edgemind/shared";
+import type { FileDTO, Part } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { files, fileVersions } from "../db/schema";
 import { BadInput } from "../lib/errors";

@@ -1,7 +1,7 @@
 /**
  * OpenAI Responses API (stateless: store=false, encrypted reasoning items round-tripped via providerMeta).
  */
-import type { ChatRequest, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, StreamEvent } from "../../../shared/src/index";
 import type { SseEvent } from "./sse";
 import { type Adapter, type HttpRequestSpec, parseArgs, resultToString, safeJson, trimSlash } from "./types";
 

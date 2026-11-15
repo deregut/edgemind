@@ -12,7 +12,7 @@
  *  - A kb_collection is bound to one embedding provider/model/dim; changing it triggers a re-index.
  */
 import { sql } from "drizzle-orm";
-import type { Part } from "@edgemind/shared";
+import type { Part } from "../../../shared/src/index";
 import {
   pgTable, text, integer, boolean, timestamp, jsonb, uuid, bigint, index, uniqueIndex, customType, real,
 } from "drizzle-orm/pg-core";

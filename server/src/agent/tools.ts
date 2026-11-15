@@ -4,7 +4,7 @@
  * call so rules like `file_write → docs/**` or `http_request → api.example.com` can be enforced.
  * Real tools (web, files, memory …) arrive in M6; MCP tools register here in M9.
  */
-import type { RiskLevel, ToolDef } from "@edgemind/shared";
+import type { RiskLevel, ToolDef } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import type { FileStore } from "../storage/files";
 import { webFetchTool, webSearchTool } from "../tools/web";

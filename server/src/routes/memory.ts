@@ -11,7 +11,7 @@
  */
 import type { Hono } from "hono";
 import { and, desc, eq, ilike, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
-import type { MemoryDTO, MemorySettingsDTO } from "@edgemind/shared";
+import type { MemoryDTO, MemorySettingsDTO } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { conversations, memories, messages, models, projects } from "../db/schema";
 import { BadInput } from "../lib/errors";

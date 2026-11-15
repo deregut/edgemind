@@ -3,8 +3,8 @@
  * (capability flags). Used by the agent loop.
  */
 import { and, eq } from "drizzle-orm";
-import type { LlmProtocol, ModelCapabilities } from "@edgemind/shared";
-import { getKindSpec } from "@edgemind/shared";
+import type { LlmProtocol, ModelCapabilities } from "../../../shared/src/index";
+import { getKindSpec } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { models, providers } from "../db/schema";
 import { decryptSecret } from "../lib/crypto";

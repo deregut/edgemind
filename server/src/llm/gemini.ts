@@ -2,7 +2,7 @@
  * Google Gemini generateContent / streamGenerateContent (alt=sse): functionCall / functionResponse,
  * thought parts (includeThoughts), thoughtSignature round-trip on function calls, inline images/PDFs.
  */
-import type { ChatRequest, FinishReason, Part, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, FinishReason, Part, StreamEvent } from "../../../shared/src/index";
 import { effortBudget } from "./prepare";
 import type { SseEvent } from "./sse";
 import { type Adapter, type HttpRequestSpec, safeJson, trimSlash } from "./types";

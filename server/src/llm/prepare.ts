@@ -6,7 +6,7 @@
  *  - reasoning parts from another protocol (signatures would be rejected) are dropped
  *  - no reasoning capability → request.reasoning removed
  */
-import type { ChatRequest, LlmProtocol, Message, ModelCapabilities, Part } from "@edgemind/shared";
+import type { ChatRequest, LlmProtocol, Message, ModelCapabilities, Part } from "../../../shared/src/index";
 import { resultToString } from "./types";
 
 const TEXT_MIME = /^(text\/|application\/(json|xml|javascript|x-yaml|yaml|toml|x-sh|sql|csv))/;

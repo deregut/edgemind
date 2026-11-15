@@ -1,4 +1,4 @@
-import type { EnvIssue } from "@edgemind/shared";
+import type { EnvIssue } from "../../shared/src/index";
 
 /** The ONLY configuration read from environment variables. Everything else lives in the DB. */
 export interface AppEnv {

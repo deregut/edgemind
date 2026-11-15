@@ -4,7 +4,7 @@
  * otherwise substring/keyword search (CJK-safe). Visible scope: global + this project + this conversation.
  */
 import { and, asc, eq, or, sql, type SQL } from "drizzle-orm";
-import { getKindSpec } from "@edgemind/shared";
+import { getKindSpec } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { memories, models, providers, usageLogs } from "../db/schema";
 import { ensureVectorIndex, nearestSql, toVectorLiteral } from "../db/vector";

@@ -19,7 +19,7 @@
  */
 import type { Hono } from "hono";
 import { desc, eq } from "drizzle-orm";
-import type { ScheduledTaskDTO, ScheduledTaskRunDTO, CronSettingsDTO } from "@edgemind/shared";
+import type { ScheduledTaskDTO, ScheduledTaskRunDTO, CronSettingsDTO } from "../../../shared/src/index";
 import type { Ctx, HonoEnv } from "../context";
 import type { ChatApi } from "./chat";
 import { models, projects, scheduledTasks, settings, auditLogs } from "../db/schema";

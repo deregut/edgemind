@@ -15,8 +15,8 @@
  * "Allow for this conversation" grants turn an `ask` into `allow` but never override `deny`.
  */
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
-import type { PermissionMode, PolicyAction, PolicyRule, PolicyScope, RiskLevel } from "@edgemind/shared";
-import { PERMISSION_MODES } from "@edgemind/shared";
+import type { PermissionMode, PolicyAction, PolicyRule, PolicyScope, RiskLevel } from "../../../shared/src/index";
+import { PERMISSION_MODES } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { conversations, projects, settings, toolApprovals, toolPolicies } from "../db/schema";
 import { matchDomain, matchGlob, toolNameSpecificity } from "./glob";

@@ -2,7 +2,7 @@
  * Entry point of the LLM layer. `streamChat` never throws: every failure (HTTP, network, abort, malformed
  * stream) ends the stream with an `error` event; success ends with `finish`.
  */
-import type { ChatRequest, FinishReason, LlmErrorInfo, Message, Part, StreamEvent, Usage } from "@edgemind/shared";
+import type { ChatRequest, FinishReason, LlmErrorInfo, Message, Part, StreamEvent, Usage } from "../../../shared/src/index";
 import { anthropicAdapter } from "./anthropic";
 import { geminiAdapter } from "./gemini";
 import { LlmError, abortError, isAbort, postWithRetry, scrub } from "./http";

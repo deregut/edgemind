@@ -13,7 +13,7 @@
  */
 import type { Hono } from "hono";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { RISK_LEVELS, type McpServerDTO, type McpServerInput, type McpSyncResponse, type McpToolDTO, type RiskLevel } from "@edgemind/shared";
+import { RISK_LEVELS, type McpServerDTO, type McpServerInput, type McpSyncResponse, type McpToolDTO, type RiskLevel } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { mcpServers, mcpTools, projects } from "../db/schema";
 import { BadInput } from "../lib/errors";

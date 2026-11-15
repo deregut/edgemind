@@ -3,7 +3,7 @@
  * and model-facing tools `mcp__{prefix}__{tool}` built per run from the enabled servers/tools.
  */
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { RiskLevel } from "@edgemind/shared";
+import type { RiskLevel } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { mcpServers, mcpTools, projects } from "../db/schema";
 import { decryptSecret, encryptSecret } from "../lib/crypto";

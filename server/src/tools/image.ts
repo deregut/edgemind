@@ -4,7 +4,7 @@
  * modality), Cloudflare Workers AI (REST or `env.AI` binding). Native fetch only.
  */
 import { and, asc, eq } from "drizzle-orm";
-import { getKindSpec } from "@edgemind/shared";
+import { getKindSpec } from "../../../shared/src/index";
 import type { Tool, ToolContext } from "../agent/tools";
 import { models, providers, usageLogs } from "../db/schema";
 import { decryptSecret } from "../lib/crypto";

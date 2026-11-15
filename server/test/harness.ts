@@ -1,6 +1,6 @@
 /** Shared integration harness: throwaway DB, logged-in client, scripted OpenAI-compatible mock LLM, extra HTTP routes. */
 import { expect } from "vitest";
-import type { AgentEvent } from "@edgemind/shared";
+import type { AgentEvent } from "../../shared/src/index";
 import { createApp } from "../src/app";
 import type { AppDeps, Platform } from "../src/context";
 import { parseSse } from "../src/llm";

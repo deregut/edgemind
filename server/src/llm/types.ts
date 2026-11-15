@@ -1,4 +1,4 @@
-import type { ChatRequest, LlmProtocol, ModelCapabilities, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, LlmProtocol, ModelCapabilities, StreamEvent } from "../../../shared/src/index";
 import type { Fetch, RetryOptions } from "./http";
 import type { SseEvent } from "./sse";
 

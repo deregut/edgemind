@@ -3,7 +3,7 @@
  * Ollama, vLLM …). Reasoning deltas are read from `reasoning_content` (DeepSeek/vLLM) or `reasoning`
  * (OpenRouter/Groq); `reasoning_details` text entries are also accepted.
  */
-import type { ChatRequest, FinishReason, Message, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, FinishReason, Message, StreamEvent } from "../../../shared/src/index";
 import type { SseEvent } from "./sse";
 import { type Adapter, type HttpRequestSpec, type LlmConfig, parseArgs, resultToString, safeJson, trimSlash } from "./types";
 

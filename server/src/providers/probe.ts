@@ -2,8 +2,8 @@
  * Model listing + connection tests for every provider kind. Real HTTP via an injectable fetch.
  * Kept deliberately cheap: list endpoints or 1-result / 1-token calls; never image generation.
  */
-import type { ModelInfo, TestResult } from "@edgemind/shared";
-import { getKindSpec } from "@edgemind/shared";
+import type { ModelInfo, TestResult } from "../../../shared/src/index";
+import { getKindSpec } from "../../../shared/src/index";
 
 export interface ProbeTarget {
   type: string;

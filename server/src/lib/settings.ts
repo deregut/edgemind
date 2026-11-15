@@ -1,6 +1,6 @@
 /** Typed access to the key/value `settings` table (non-secret values). */
 import { eq } from "drizzle-orm";
-import type { AgentSettingsDTO, FullModeCaps } from "@edgemind/shared";
+import type { AgentSettingsDTO, FullModeCaps } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { settings } from "../db/schema";
 

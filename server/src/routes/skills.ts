@@ -17,7 +17,7 @@ import type { Hono } from "hono";
 import { ensureBuiltinSkills } from "../skills/builtin";
 import { eq } from "drizzle-orm";
 import { skills } from "../db/schema";
-import type { SkillDetailDTO, SkillImportResult } from "@edgemind/shared";
+import type { SkillDetailDTO, SkillImportResult } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { BadInput } from "../lib/errors";
 import { decryptSecret, encryptSecret } from "../lib/crypto";

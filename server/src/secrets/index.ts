@@ -4,7 +4,7 @@
  * only ever see names, masked previews and allowed domains.
  */
 import { asc, eq, inArray } from "drizzle-orm";
-import type { SecretDTO } from "@edgemind/shared";
+import type { SecretDTO } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { secrets } from "../db/schema";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/crypto";

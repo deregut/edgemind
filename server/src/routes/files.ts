@@ -9,7 +9,7 @@
  */
 import type { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
-import type { FileVersionDTO, UploadTicket } from "@edgemind/shared";
+import type { FileVersionDTO, UploadTicket } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { files, projects } from "../db/schema";
 import { BadInput } from "../lib/errors";

@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { and, asc, eq } from "drizzle-orm";
-import { PROVIDER_TYPES, getKindSpec, type ProviderDTO, type ProviderInput } from "@edgemind/shared";
+import { PROVIDER_TYPES, getKindSpec, type ProviderDTO, type ProviderInput } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { clientIp } from "../context";
 import { auditLogs, models, providers } from "../db/schema";
