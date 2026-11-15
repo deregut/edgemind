@@ -4,7 +4,7 @@
  * web_fetch: SSRF-guarded fetch → Readability → Markdown, read in chunks via `offset`; Jina Reader fallback.
  */
 import { and, asc, eq } from "drizzle-orm";
-import { getKindSpec } from "@edgemind/shared";
+import { getKindSpec } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { providers, usageLogs } from "../db/schema";
 import { decryptSecret } from "../lib/crypto";

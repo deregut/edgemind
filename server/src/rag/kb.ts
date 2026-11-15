@@ -12,8 +12,8 @@
  * fused with Reciprocal Rank Fusion (k = 60); optional rerank with the collection's rerank provider.
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { KbIndexProgress, KbSearchHit } from "@edgemind/shared";
-import { getKindSpec } from "@edgemind/shared";
+import type { KbIndexProgress, KbSearchHit } from "../../../shared/src/index";
+import { getKindSpec } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { kbChunks, kbCollections, kbDocuments, providers, usageLogs } from "../db/schema";
 import { ensureVectorIndex, nearestSql, toVectorLiteral } from "../db/vector";

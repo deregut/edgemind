@@ -7,7 +7,7 @@
  */
 import type { Hono } from "hono";
 import { and, eq, isNull, or } from "drizzle-orm";
-import type { PolicyRule, PolicyScope } from "@edgemind/shared";
+import type { PolicyRule, PolicyScope } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { auditLogs, conversations, projects, settings, toolPolicies } from "../db/schema";
 import { BadInput } from "../lib/errors";

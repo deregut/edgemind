@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatRequest, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, StreamEvent } from "../../shared/src/index";
 import { buildHttpRequest, collect, parseExtraHeaders, parseSse, sanitizeSchema, streamChat, type LlmConfig } from "../src/llm";
 import { chunkedStream, fixture, noSleep, queueFetch, sseResponse } from "./llm-helpers";
 

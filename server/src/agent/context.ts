@@ -6,7 +6,7 @@ import { attachedCollections } from "../rag/kb";
 import { skillsSection as defaultSkillsSection } from "../tools/skills";
 import { secretsSection } from "../secrets";
 import { asc, eq } from "drizzle-orm";
-import type { Message } from "@edgemind/shared";
+import type { Message } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { conversations, messages, projects, settings } from "../db/schema";
 

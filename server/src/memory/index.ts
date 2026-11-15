@@ -10,7 +10,7 @@
  */
 import { recordLlmUsage, spendStatus } from "../usage";
 import { eq } from "drizzle-orm";
-import { DEFAULT_MEMORY_SETTINGS, type MemorySettingsDTO, type Message, type Part } from "@edgemind/shared";
+import { DEFAULT_MEMORY_SETTINGS, type MemorySettingsDTO, type Message, type Part } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { conversations, memories, runs } from "../db/schema";
 import { getSetting } from "../lib/settings";

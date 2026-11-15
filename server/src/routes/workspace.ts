@@ -15,7 +15,7 @@ import { recordLlmUsage, spendStatus } from "../usage";
 import type { Hono } from "hono";
 import { buildMcpTools } from "../mcp/service";
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
-import type { AgentSettingsDTO, ConversationDTO, ModelOptionDTO, Part, PermissionMode, ProjectDTO, ToolInfoDTO } from "@edgemind/shared";
+import type { AgentSettingsDTO, ConversationDTO, ModelOptionDTO, Part, PermissionMode, ProjectDTO, ToolInfoDTO } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { conversations, messages, models, projects, providers } from "../db/schema";
 import { BadInput } from "../lib/errors";

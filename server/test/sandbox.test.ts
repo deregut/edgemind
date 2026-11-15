@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import type { AgentEvent } from "@edgemind/shared";
+import type { AgentEvent } from "../../shared/src/index";
 import { auditLogs, fileVersions, files, messages, runs, toolApprovals } from "../src/db/schema";
 import { parseSse } from "../src/llm";
 import { runJavaScript } from "../src/sandbox/quickjs";

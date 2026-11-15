@@ -9,7 +9,7 @@
 import {
   CODE_OUTPUT_CAP, CODE_RUN_DEFAULT_TIMEOUT_SEC, CODE_RUN_MAX_TIMEOUT_SEC, PYTHON_DEFAULT_TIMEOUT_SEC, PYTHON_MAX_TIMEOUT_SEC,
   type ClientMount, type ClientToolArgs,
-} from "@edgemind/shared";
+} from "../../../shared/src/index";
 import { ToolDeferred, type Tool, type ToolContext } from "../agent/tools";
 import { runJavaScript, type VfsFile } from "../sandbox/quickjs";
 import { normalizePath, type FileRow, type FileStore } from "../storage/files";

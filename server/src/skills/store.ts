@@ -5,7 +5,7 @@
  */
 import { asc, eq } from "drizzle-orm";
 import { unzipSync, zipSync } from "fflate";
-import { SKILL_DESCRIPTION_MAX, SKILL_NAME_RE, type SkillDTO, type SkillFileDTO, type SkillSource } from "@edgemind/shared";
+import { SKILL_DESCRIPTION_MAX, SKILL_NAME_RE, type SkillDTO, type SkillFileDTO, type SkillSource } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { projects, skills } from "../db/schema";
 import { BadInput } from "../lib/errors";

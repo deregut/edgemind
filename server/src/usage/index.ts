@@ -9,7 +9,7 @@
  * call (agent loop, sub-agents, auto titles, memory extraction). Reaching a cap blocks the call with a clear
  * error; at `warnRatio` (default 80 %) a warning is recorded once per run.
  */
-import type { SpendCaps, SpendStatus, Usage, UsageReport, UsageRow } from "@edgemind/shared";
+import type { SpendCaps, SpendStatus, Usage, UsageReport, UsageRow } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { usageLogs } from "../db/schema";
 import { getModelPrices, getSetting, type ModelPrices } from "../lib/settings";

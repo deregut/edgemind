@@ -13,8 +13,8 @@
  * error result), and each model step / tool batch is its own message row chained by parent_id.
  */
 import { and, eq, ne, sql } from "drizzle-orm";
-import type { AgentEvent, ChatRequest, PendingApprovalDTO, PermissionMode, RunStatus } from "@edgemind/shared";
-import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
+import type { AgentEvent, ChatRequest, PendingApprovalDTO, PermissionMode, RunStatus } from "../../../shared/src/index";
+import { TERMINAL_RUN_STATUSES } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { auditLogs, projects, runSteps, toolApprovals, usageLogs } from "../db/schema";
 import { getFullModeCaps, getModelPrices } from "../lib/settings";
@@ -30,7 +30,7 @@ import {
 } from "./store";
 import { ToolDeferred, type Tool, type ToolContext, type ToolRegistry } from "./tools";
 import { resolveFilePart, type FileStore } from "../storage/files";
-import type { Message, Part } from "@edgemind/shared";
+import type { Message, Part } from "../../../shared/src/index";
 
 export interface AgentEnv {
   database: Database;

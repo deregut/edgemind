@@ -2,7 +2,7 @@
  * Anthropic Messages API: extended thinking (signatures + redacted_thinking round-trip), tool_use / tool_result,
  * image + PDF input. Consecutive same-role turns are merged (the API requires alternation).
  */
-import type { ChatRequest, FinishReason, Part, StreamEvent } from "@edgemind/shared";
+import type { ChatRequest, FinishReason, Part, StreamEvent } from "../../../shared/src/index";
 import { effortBudget } from "./prepare";
 import type { SseEvent } from "./sse";
 import { type Adapter, type HttpRequestSpec, parseArgs, resultToString, safeJson, trimSlash } from "./types";

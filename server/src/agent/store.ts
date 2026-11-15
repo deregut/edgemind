@@ -1,7 +1,7 @@
 /** Run persistence helpers: leases, step log, checkpoints, messages. */
 import { and, eq, sql } from "drizzle-orm";
 import { toTsvectorLiteral } from "../lib/textsearch";
-import type { Part, RunStatus, StoredMessageDTO } from "@edgemind/shared";
+import type { Part, RunStatus, StoredMessageDTO } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { conversations, messages, runs } from "../db/schema";
 

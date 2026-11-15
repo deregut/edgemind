@@ -9,8 +9,8 @@
  *   first occurrence.
  */
 
-import type { ScheduleSpec } from "@edgemind/shared";
-export type { ScheduleSpec, ScheduleType } from "@edgemind/shared";
+import type { ScheduleSpec } from "../../../shared/src/index";
+export type { ScheduleSpec, ScheduleType } from "../../../shared/src/index";
 
 interface CronFields {
   minute: Set<number>;

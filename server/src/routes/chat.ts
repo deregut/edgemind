@@ -10,8 +10,8 @@
  */
 import type { Hono } from "hono";
 import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
-import type { AgentEvent, ApprovalDecision, ClientToolResult, Part, RunStatus } from "@edgemind/shared";
-import { CODE_OUTPUT_CAP, TERMINAL_RUN_STATUSES } from "@edgemind/shared";
+import type { AgentEvent, ApprovalDecision, ClientToolResult, Part, RunStatus } from "../../../shared/src/index";
+import { CODE_OUTPUT_CAP, TERMINAL_RUN_STATUSES } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { runInBackground } from "../context";
 import { auditLogs, conversations, files as files_, messages, models, projects, providers, runSteps, runs, settings, toolApprovals } from "../db/schema";

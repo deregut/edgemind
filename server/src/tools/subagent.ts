@@ -4,7 +4,7 @@
  * the current segment and returns just its final text, keeping the parent's context small.
  */
 import { AssistantBuilder, streamChat } from "../llm";
-import type { Message, Part } from "@edgemind/shared";
+import type { Message, Part } from "../../../shared/src/index";
 import { ToolDeferred, type Tool } from "../agent/tools";
 import { assertSpendAllowed, recordLlmUsage } from "../usage";
 

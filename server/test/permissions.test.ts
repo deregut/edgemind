@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluate, matchPolicy, type Policy } from "../src/agent/permissions";
 import { globToRegExp, matchDomain, matchGlob, toolNameSpecificity } from "../src/agent/glob";
-import type { RiskLevel } from "@edgemind/shared";
+import type { RiskLevel } from "../../shared/src/index";
 
 const ev = (mode: any, risk: RiskLevel, policies: Policy[] = [], targets = {}, grants: string[] = [], toolName = "t") =>
   evaluate({ mode, toolName, risk, targets, policies, grants: new Set(grants) }).decision;

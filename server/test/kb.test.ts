@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { chunkDocument, csvRecords, markdownSections } from "@edgemind/shared";
+import { chunkDocument, csvRecords, markdownSections } from "../../shared/src/index";
 import { kbChunks, kbCollections, messages } from "../src/db/schema";
 import { documentTokens, queryTerms, toTsqueryLiteral, toTsvectorLiteral } from "../src/lib/textsearch";
 import { embedTexts, rerankDocuments, type ProbeTarget } from "../src/providers/probe";

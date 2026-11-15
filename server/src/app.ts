@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { StatusResponse } from "@edgemind/shared";
+import type { StatusResponse } from "../../shared/src/index";
 import type { AppDeps, HonoEnv } from "./context";
 import { decodeKey32, validateEnv, type EnvValidation } from "./env";
 import { migrate } from "./db/migrate";

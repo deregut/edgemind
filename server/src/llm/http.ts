@@ -3,7 +3,7 @@
  * network errors, abort support, and secret scrubbing in error messages. Retries only happen before any
  * byte of a streamed body has been consumed; mid-stream failures surface as `error` events.
  */
-import type { LlmErrorInfo } from "@edgemind/shared";
+import type { LlmErrorInfo } from "../../../shared/src/index";
 
 export type Fetch = typeof fetch;
 

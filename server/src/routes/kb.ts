@@ -17,8 +17,8 @@
  */
 import type { Hono } from "hono";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import type { KbChunkDTO, KbCollectionDTO, KbDocumentDTO } from "@edgemind/shared";
-import { KB_MAX_CHUNK_SIZE } from "@edgemind/shared";
+import type { KbChunkDTO, KbCollectionDTO, KbDocumentDTO } from "../../../shared/src/index";
+import { KB_MAX_CHUNK_SIZE } from "../../../shared/src/index";
 import type { AppDeps, Ctx, HonoEnv } from "../context";
 import { runInBackground } from "../context";
 import { files, kbChunks, kbCollections, kbDocuments, projects, providers } from "../db/schema";
