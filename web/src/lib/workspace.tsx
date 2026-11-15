@@ -47,6 +47,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     refreshMeta().catch(() => {});
   }, [refreshConversations, refreshProjects, refreshMeta]);
 
+  // Models / tools can change in another tab or after settings edits elsewhere: re-read them whenever
+  // the window regains focus so pickers (chat, project defaults) never show a stale list.
+  useEffect(() => {
+    let last = Date.now();
+    const onFocus = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5000) return;
+      last = Date.now();
+      refreshMeta().catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [refreshMeta]);
+
   const value = useMemo(
     () => ({ conversations, projects, models, tools, agentSettings, refreshConversations, refreshProjects, refreshMeta, patchConversation }),
     [conversations, projects, models, tools, agentSettings, refreshConversations, refreshProjects, refreshMeta, patchConversation],

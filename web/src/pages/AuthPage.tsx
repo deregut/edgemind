@@ -36,7 +36,7 @@ export function AuthPage({ mode, onDone }: { mode: "setup" | "login"; onDone: ()
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-500/10 via-background to-violet-500/10 p-4">
-      <ThemeToggle className="absolute right-4 top-4" />
+      <ThemeToggle className="absolute right-4 top-4" side="bottom" />
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
           <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white">

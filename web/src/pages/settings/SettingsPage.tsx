@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
+import { useWorkspace } from "@/lib/workspace";
 import { ProviderDialog } from "./ProviderDialog";
 import { ModelsDialog } from "./ModelsDialog";
 import { AgentSettingsSection } from "./AgentSettings";
@@ -69,7 +70,7 @@ export function SettingsPage() {
         <TabsContent value="appearance">
           <Card>
             <CardHeader><CardTitle>主題</CardTitle><CardDescription>選擇淺色、深色，或跟隨系統設定。</CardDescription></CardHeader>
-            <CardContent><ThemeToggle /></CardContent>
+            <CardContent><ThemeToggle variant="segmented" /></CardContent>
           </Card>
         </TabsContent>
       </Tabs>
@@ -78,6 +79,7 @@ export function SettingsPage() {
 }
 
 function ProvidersSection() {
+  const ws = useWorkspace();
   const [type, setType] = useState<ProviderType>("llm");
   const [items, setItems] = useState<ProviderDTO[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -101,6 +103,7 @@ function ProvidersSection() {
     try {
       await api(`/providers/${p.id}`, { method: "PATCH", body: { enabled } });
       setItems((xs) => xs?.map((x) => (x.id === p.id ? { ...x, enabled } : x)) ?? null);
+      ws.refreshMeta().catch(() => {});
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -124,6 +127,7 @@ function ProvidersSection() {
       await api(`/providers/${p.id}`, { method: "DELETE" });
       toast.success("已刪除");
       load();
+      ws.refreshMeta().catch(() => {});
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -185,7 +189,7 @@ function ProvidersSection() {
         </div>
       )}
 
-      <ProviderDialog type={type} open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={load} />
+      <ProviderDialog type={type} open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={() => { load(); ws.refreshMeta().catch(() => {}); }} />
       <ModelsDialog provider={modelsFor} onOpenChange={(o) => !o && setModelsFor(null)} />
     </div>
   );
