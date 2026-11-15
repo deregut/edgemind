@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Composer } from "@/components/chat/Composer";
 import { AssistantTurn, UserMessage, type LiveState } from "@/components/chat/Messages";
-import { runClientTool } from "@/lib/clientTools";
+import { onClientToolDone, runClientTool, type ClientToolOutcome } from "@/lib/clientTools";
 import { api, ApiError } from "@/lib/api";
 import { download, postChat } from "@/lib/stream";
 import { latestLeaf, pathTo, toTurns } from "@/lib/tree";
@@ -30,7 +30,17 @@ interface ConvMeta {
 interface MessagesResponse {
   conversation: ConvMeta & { activeLeafId: string | null };
   messages: StoredMessageDTO[];
-  activeRun: { id: string; status: string; mode: "stream" | "background"; approvals: PendingApprovalDTO[]; lastSeq: number } | null;
+  activeRun: ActiveRunDTO | null;
+}
+
+interface ActiveRunDTO {
+  id: string;
+  status: string;
+  mode: "stream" | "background";
+  approvals: PendingApprovalDTO[];
+  lastSeq: number;
+  /** No segment is executing it and only a `continue` from this page will move it on (paused between segments / stale). */
+  resumable?: boolean;
 }
 
 type Effort = "" | "low" | "medium" | "high";
@@ -95,17 +105,22 @@ export function ChatPage() {
       setTree(Object.fromEntries(r.messages.map((m) => [m.id, m])));
       setLeafId(r.conversation.activeLeafId);
       setPausedRun(null);
+      stopPolling();
+      setBusy(false);
       const ar = r.activeRun;
       if (!ar) {
         setLive(null);
       } else if (ar.status === "waiting_approval") {
+        // approvals / questions show their cards; browser-side items (code_run python) are started by the effect below
         setLive({ ...emptyLive(ar.id, ar.mode), approvals: ar.approvals, status: ar.status });
-      } else if (ar.mode === "background" || ar.status === "running" || ar.status === "pending") {
-        setLive(emptyLive(ar.id, ar.mode));
-        startPolling(ar.id, ar.lastSeq);
-      } else if (ar.status === "paused") {
+      } else if (ar.resumable || (ar.status === "paused" && ar.mode !== "background")) {
+        // nothing is executing it: offer 繼續執行 instead of spinning forever
         setLive(null);
         setPausedRun(ar.id);
+      } else {
+        // pending / running / stopping, or a background run between invocations: follow its step log
+        setLive(emptyLive(ar.id, ar.mode));
+        startPolling(ar.id, ar.lastSeq);
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
@@ -161,7 +176,8 @@ export function ChatPage() {
     }
   }, [ws]);
 
-  function handleEvent(e: AgentEvent, ctx: { pendingUser?: StoredMessageDTO; wasNew: boolean; flags: { cont: boolean; status: string } }) {
+  type StreamFlags = { cont: boolean; status: string; approvals: number };
+  function handleEvent(e: AgentEvent, ctx: { pendingUser?: StoredMessageDTO; wasNew: boolean; flags: StreamFlags }) {
     switch (e.type) {
       case "run": {
         setLive((l) => ({ ...(l ?? emptyLive(e.runId, "stream")), runId: e.runId }));
@@ -210,6 +226,7 @@ export function ChatPage() {
         setLive((l) => l && { ...l, results: { ...l.results, [e.callId]: { result: e.result, isError: e.isError } } });
         break;
       case "approval-required":
+        ctx.flags.approvals += e.approvals.length;
         setLive((l) => l && { ...l, approvals: [...l.approvals.filter((a) => !e.approvals.some((b) => b.id === a.id)), ...e.approvals] });
         break;
       case "continue":
@@ -230,12 +247,12 @@ export function ChatPage() {
     setBusy(true);
     setPausedRun(null);
     setLive((l) => (l && l.approvals.length ? { ...l, error: undefined } : emptyLive(null, body.mode === "background" ? "background" : "stream")));
-    const ctx = { pendingUser: opts.pendingUser, wasNew: !!opts.wasNew, flags: { cont: false, status: "" } };
+    const ctx = { pendingUser: opts.pendingUser, wasNew: !!opts.wasNew, flags: { cont: false, status: "", approvals: 0 } as StreamFlags };
     let currentConv = convId;
     try {
       let next: Record<string, unknown> | null = body;
       while (next) {
-        ctx.flags = { cont: false, status: "" };
+        ctx.flags = { cont: false, status: "", approvals: 0 };
         let runId: string | null = null;
         const res = await postChat(next, (e) => {
           if (e.type === "run") {
@@ -254,7 +271,20 @@ export function ChatPage() {
         }
         next = ctx.flags.cont && runId ? { runId, action: "continue" } : null;
       }
-      await finishRun(currentConv, ctx.flags.status || "completed", ctx.wasNew);
+      const status = ctx.flags.status;
+      if (!status || (status === "waiting_approval" && !ctx.flags.approvals)) {
+        // The stream ended without its terminal `done` (connection cut, platform time limit, proxy…) or without the
+        // items it waits on. Never assume "completed": the run may be waiting for this tab (e.g. code_run python), paused,
+        // or still running. Re-read the real state from the server.
+        setBusy(false);
+        if (currentConv) {
+          toast.message("連線中斷，已重新載入執行狀態");
+          await load(currentConv);
+        } else setLive(null);
+        await ws.refreshConversations().catch(() => {});
+        return;
+      }
+      await finishRun(currentConv, status, ctx.wasNew);
     } catch (e) {
       setBusy(false);
       if (ctx.pendingUser) setTree((t) => { const n = { ...t }; delete n[ctx.pendingUser!.id]; return n; });
@@ -263,7 +293,7 @@ export function ChatPage() {
       if (currentConv) load(currentConv);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convId, projectId, draftMode, finishRun]);
+  }, [convId, projectId, draftMode, finishRun, load]);
 
   /** Background mode / reload: poll the run's step log. */
   function startPolling(runId: string, after: number, wasNew = false) {
@@ -276,7 +306,7 @@ export function ChatPage() {
     const tick = async () => {
       if (token.stop) return;
       try {
-        const r = await api<{ status: string; steps: { seq: number; kind: string; payload: any }[]; nextAfter: number }>(`/runs/${runId}/events?after=${seq}`);
+        const r = await api<{ status: string; mode?: string; stale?: boolean; resumable?: boolean; steps: { seq: number; kind: string; payload: any }[]; nextAfter: number }>(`/runs/${runId}/events?after=${seq}`);
         if (token.stop) return;
         let needApprovals = false;
         for (const s of r.steps) {
@@ -306,6 +336,19 @@ export function ChatPage() {
           token.stop = true;
           pollRef.current = null;
           return;
+        }
+        if (r.resumable) {
+          // paused between segments (stream mode) or abandoned by a segment that died: only 繼續執行 moves it on
+          token.stop = true;
+          pollRef.current = null;
+          setBusy(false);
+          setLive((l) => (l && l.error ? { ...l, runId: null } : null));
+          setPausedRun(runId);
+          return;
+        }
+        if (r.status === "stopping" && r.stale) {
+          // the segment that should finish the stop is gone: let the server close it
+          await api(`/runs/${runId}/stop`, { method: "POST" }).catch(() => {});
         }
       } catch {
         /* transient: retry */
@@ -381,20 +424,26 @@ export function ChatPage() {
   }
 
   // Client-side tools (code_run python): execute pending items in this tab, then continue the run.
+  const startClientTool = useCallback((runId: string, a: PendingApprovalDTO, force = false) => {
+    runClientTool(runId, a, { force }).catch((e) => toast.error((e as Error).message));
+  }, []);
   useEffect(() => {
     const runId = live?.runId;
     if (!runId) return;
-    for (const a of live.approvals) {
-      if (a.kind !== "client") continue;
-      runClientTool(runId, a).then((r) => {
-        if (!r) return;
-        setLive((l) => l && { ...l, approvals: l.approvals.filter((x) => x.toolCallId !== a.toolCallId) });
-        if (r.resume) runChat({ runId, action: "continue" });
-        else if (r.status === "paused") startPolling(runId, 0);
-      }).catch((e) => toast.error((e as Error).message));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live?.runId, live?.approvals]);
+    for (const a of live.approvals) if (a.kind === "client") startClientTool(runId, a); // no-op when already started here
+  }, [live?.runId, live?.approvals, startClientTool]);
+
+  // Completions are broadcast (the tool may have been started by an earlier mount of this page, or before a resync).
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const onClientDone = useRef<(runId: string, toolCallId: string, r: ClientToolOutcome) => void>(() => {});
+  onClientDone.current = (runId, toolCallId, r) => {
+    if (liveRef.current?.runId !== runId) return; // another conversation is open; it is resumable from its own page
+    setLive((l) => l && { ...l, approvals: l.approvals.filter((x) => x.toolCallId !== toolCallId) });
+    if (r.resume) runChat({ runId, action: "continue" });
+    else if (r.status === "paused") startPolling(runId, 0);
+  };
+  useEffect(() => onClientToolDone((runId, id, r) => onClientDone.current(runId, id, r)), []);
 
   async function decide(a: PendingApprovalDTO, decision: ApprovalDecision, answer?: string) {
     const runId = live?.runId;
@@ -543,14 +592,16 @@ export function ChatPage() {
               {t.user && <UserMessage tree={treeMap} msg={t.user} busy={busy} onEdit={(txt) => edit(t.user!, txt)} onSwitch={switchBranch} />}
               <AssistantTurn
                 tree={treeMap} turn={t} live={live} isLast={i === turns.length - 1} busy={busy} tools={ws.tools}
+                runActive={busy || !!live?.runId} runPaused={!!pausedRun}
                 onRegenerate={() => t.user && regenerate(t.user)} onSwitch={switchBranch}
                 onDecide={(a, d) => decide(a, d)} onAnswer={(a, ans) => decide(a, "allow_once", ans)}
+                onStartClient={(a, force) => live?.runId && startClientTool(live.runId, a, force)}
               />
             </div>
           ))}
           {pausedRun && !busy && (
-            <div className="flex items-center justify-center gap-3 rounded-lg border p-3 text-sm">
-              這個任務在分段之間暫停了。
+            <div className="flex items-center justify-center gap-3 rounded-lg border p-3 text-sm" data-testid="paused-run">
+              這個任務尚未完成（在分段之間暫停，或連線中斷）。
               <Button size="sm" onClick={() => runChat({ runId: pausedRun, action: "continue" })}><Play /> 繼續執行</Button>
             </div>
           )}

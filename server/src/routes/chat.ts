@@ -110,6 +110,17 @@ function sse(c: Ctx, work: (emit: (e: AgentEvent) => void) => Promise<unknown>):
   });
 }
 
+/**
+ * Whether anything is still executing a run. `stale`: running / pending / stopping but its lease expired (the segment
+ * died, e.g. a platform time limit or a dropped connection). `resumable`: a stream-mode run that only moves on when a
+ * page POSTs `continue` (paused between segments, or stale) — the UI must offer that instead of waiting forever.
+ */
+export function runLiveness(run: { status: string; mode: string; updatedAt: Date }, now = Date.now()): { stale: boolean; resumable: boolean } {
+  const stale = ["running", "pending", "stopping"].includes(run.status) && now - run.updatedAt.getTime() > STALE_LEASE_MS;
+  const resumable = run.mode === "stream" && (run.status === "paused" || (stale && run.status !== "stopping"));
+  return { stale, resumable };
+}
+
 async function lastSeq(c: Ctx, runId: string): Promise<number> {
   const [r] = await c.get("database").db.select({ n: sql<number>`coalesce(max(${runSteps.seq}), 0)::int` }).from(runSteps).where(eq(runSteps.runId, runId));
   return Number(r?.n ?? 0);
@@ -332,6 +343,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
       id: run.id, conversationId: run.conversationId, userMessageId: run.userMessageId, status: run.status, mode: run.mode,
       stepCount: run.stepCount, maxSteps: run.maxSteps, error: run.error, finishReason: cp?.finishReason ?? null,
       createdAt: run.createdAt.toISOString(), updatedAt: run.updatedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null,
+      ...runLiveness(run),
       approvals: await pendingApprovals(c.get("database"), run.id, registry),
     });
   });
@@ -345,6 +357,8 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
     const steps = await c.get("database").db.select().from(runSteps).where(and(eq(runSteps.runId, id), gt(runSteps.seq, after))).orderBy(asc(runSteps.seq)).limit(500);
     return c.json({
       status: run.status,
+      mode: run.mode,
+      ...runLiveness(run),
       stepCount: run.stepCount,
       steps: steps.map((s) => ({ seq: s.seq, kind: s.kind, payload: s.payload, createdAt: s.createdAt.toISOString() })),
       nextAfter: steps.length ? steps[steps.length - 1].seq : after,
@@ -451,7 +465,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
       .where(and(eq(runs.conversationId, id), inArray(runs.status, ["pending", "running", "paused", "waiting_approval", "stopping"])))
       .orderBy(desc(runs.createdAt)).limit(1);
     const activeRun = open
-      ? { id: open.id, status: open.status, mode: open.mode, approvals: await pendingApprovals(c.get("database"), open.id, registry), lastSeq: await lastSeq(c, open.id) }
+      ? { id: open.id, status: open.status, mode: open.mode, ...runLiveness(open), approvals: await pendingApprovals(c.get("database"), open.id, registry), lastSeq: await lastSeq(c, open.id) }
       : null;
     return c.json({
       conversation: { id: conv.id, title: conv.title, projectId: conv.projectId, activeLeafId: conv.activeLeafId, permissionMode: conv.permissionMode, modelId: conv.modelId },

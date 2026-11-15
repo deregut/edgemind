@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
-import { AlertTriangle, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, Loader2, ShieldAlert, Wrench, X } from "lucide-react";
+import { AlertTriangle, Brain, Check, ChevronDown, ChevronRight, CircleHelp, CirclePause, CircleSlash, FileText, Loader2, Play, ShieldAlert, Wrench, X } from "lucide-react";
 import { RISK_LABELS, type ClientToolArgs, type PendingApprovalDTO, type RiskLevel, type ApprovalDecision } from "@edgemind/shared";
-import { cancelClientTool, useClientStatus, type ClientPhase } from "@/lib/clientTools";
+import { cancelClientTool, clientToolStarted, useClientStatus, type ClientPhase } from "@/lib/clientTools";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -52,18 +52,32 @@ export function pretty(v: unknown): string {
   }
 }
 
-export type ToolState = "streaming" | "running" | "waiting" | "done" | "error";
+/**
+ * running     = the run is live (streaming / polling) and this call has no result yet
+ * waiting     = paused on this call (approval, ask_user question, or browser-side execution)
+ * paused      = the run stopped between segments / was interrupted and can be continued
+ * interrupted = no result and no live run will produce one (stopped, failed, connection cut)
+ */
+export type ToolState = "streaming" | "running" | "waiting" | "paused" | "interrupted" | "done" | "error";
+export type WaitingKind = PendingApprovalDTO["kind"];
 
-export function ToolCard(props: { name: string; args: unknown; argsText?: string; result?: unknown; state: ToolState; risk?: RiskLevel | "unknown" }) {
+const WAITING_LABEL: Record<NonNullable<WaitingKind>, string> = { approval: "等待批准", question: "等待回答", client: "等待瀏覽器執行" };
+
+export function ToolCard(props: { name: string; args: unknown; argsText?: string; result?: unknown; state: ToolState; risk?: RiskLevel | "unknown"; waitingKind?: WaitingKind }) {
   const [open, setOpen] = useState(false);
   const icon =
     props.state === "done" ? <Check className="h-4 w-4 text-emerald-600" /> :
     props.state === "error" ? <X className="h-4 w-4 text-destructive" /> :
     props.state === "waiting" ? <ShieldAlert className="h-4 w-4 text-amber-600" /> :
+    props.state === "paused" ? <CirclePause className="h-4 w-4 text-amber-600" /> :
+    props.state === "interrupted" ? <CircleSlash className="h-4 w-4 text-muted-foreground" /> :
     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
-  const label = { streaming: "產生參數中", running: "執行中", waiting: "等待批准", done: "完成", error: "錯誤" }[props.state];
+  const label = {
+    streaming: "產生參數中", running: "執行中", waiting: WAITING_LABEL[props.waitingKind ?? "approval"], paused: "已暫停",
+    interrupted: "未完成（已中斷）", done: "完成", error: "錯誤",
+  }[props.state];
   return (
-    <div className="my-2 rounded-lg border text-sm">
+    <div className="my-2 rounded-lg border text-sm" data-testid="tool-card" data-state={props.state}>
       <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen((v) => !v)}>
         {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
         <Wrench className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -83,6 +97,10 @@ export function ToolCard(props: { name: string; args: unknown; argsText?: string
               <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 text-xs">{pretty(props.result)}</pre>
             </div>
           )}
+          {props.state === "interrupted" && (
+            <div className="text-xs text-muted-foreground">這個工具呼叫沒有結果：執行已中斷或停止。可以重新生成回覆，或直接繼續對話。</div>
+          )}
+          {props.state === "paused" && <div className="text-xs text-muted-foreground">執行已暫停，按下方的「繼續執行」即可接續。</div>}
         </div>
       )}
     </div>
@@ -103,21 +121,27 @@ const PHASE_LABEL: Record<ClientPhase, string> = {
 };
 
 /** code_run python executing in this browser tab (Pyodide). */
-function ClientToolCard({ a }: { a: PendingApprovalDTO }) {
+function ClientToolCard({ a, onStart }: { a: PendingApprovalDTO; onStart?(force: boolean): void }) {
   const st = useClientStatus(a.toolCallId);
   const args = (a.args ?? {}) as Partial<ClientToolArgs>;
-  const active = !st || !["done", "error", "cancelled"].includes(st.phase);
+  // Not started in this tab (e.g. auto-start did not happen) → offer 執行; finished but still pending here → the result
+  // could not be reported → offer 重新執行.
+  const notStarted = !st && !clientToolStarted(a.toolCallId);
+  const stuck = !!st && ["done", "error", "cancelled"].includes(st.phase);
+  const active = !notStarted && !stuck;
   return (
-    <div className="my-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+    <div className="my-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm" data-testid="client-tool-card">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         {active ? <Loader2 className="h-4 w-4 animate-spin text-sky-600" /> : st?.phase === "done" ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-destructive" />}
         <span className="font-medium">在瀏覽器執行 Python</span>
-        <span className="text-xs text-muted-foreground">{st ? PHASE_LABEL[st.phase] : "準備中…"}</span>
+        <span className="text-xs text-muted-foreground">{st ? PHASE_LABEL[st.phase] : notStarted ? "尚未開始" : "準備中…"}</span>
         {!!args.mounts?.length && <span className="text-xs text-muted-foreground">掛載 {args.mounts.length} 個檔案</span>}
       </div>
       {st?.message && <div className="mb-2 text-xs text-destructive">{st.message}</div>}
       <pre className="mb-2 max-h-56 overflow-auto rounded bg-muted/60 p-2 text-xs">{args.code ?? ""}</pre>
       <div className="flex items-center gap-2">
+        {notStarted && onStart && <Button size="sm" onClick={() => onStart(false)}><Play /> 執行</Button>}
+        {stuck && onStart && <Button size="sm" variant="outline" onClick={() => onStart(true)}><Play /> 重新執行</Button>}
         {active && <Button size="sm" variant="outline" onClick={() => cancelClientTool(a.toolCallId)}>取消執行</Button>}
         <span className="text-xs text-muted-foreground">請保持此分頁開啟直到完成；逾時 {args.timeoutSec ?? 30} 秒（不含載入）。</span>
       </div>
@@ -125,10 +149,12 @@ function ClientToolCard({ a }: { a: PendingApprovalDTO }) {
   );
 }
 
-export function ApprovalCard({ a, onDecide, onAnswer }: {
+export function ApprovalCard({ a, onDecide, onAnswer, onStartClient }: {
   a: PendingApprovalDTO;
   onDecide(decision: ApprovalDecision): Promise<void>;
   onAnswer?(answer: string): Promise<void>;
+  /** Start (or force re-run) a browser-side item. */
+  onStartClient?(force: boolean): void;
 }) {
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -140,7 +166,7 @@ export function ApprovalCard({ a, onDecide, onAnswer }: {
       setBusy(false);
     }
   };
-  if (a.kind === "client") return <ClientToolCard a={a} />;
+  if (a.kind === "client") return <ClientToolCard a={a} onStart={onStartClient} />;
   if (a.kind === "question") {
     const q = (a.args ?? {}) as { question?: string; choices?: string[] };
     return (

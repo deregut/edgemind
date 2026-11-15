@@ -49,8 +49,25 @@ function killWorker() {
 }
 
 const started = new Set<string>();
+
+// ---------- completion listeners ----------
+// The page that should continue the run may not be the one that started the tool (navigation / remount / resync),
+// so completions are broadcast and the currently mounted chat page decides what to do with them.
+export type ClientToolOutcome = { status: string; resume: boolean };
+type DoneListener = (runId: string, toolCallId: string, outcome: ClientToolOutcome) => void;
+const doneListeners = new Set<DoneListener>();
+export function onClientToolDone(l: DoneListener): () => void {
+  doneListeners.add(l);
+  return () => void doneListeners.delete(l);
+}
+/** True when this tab already started (or finished) the item; false = nothing is executing it here. */
+export function clientToolStarted(toolCallId: string): boolean {
+  return started.has(toolCallId);
+}
 const MAX_OUTPUT_FILE = 5 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 50;
+/** Loading Pyodide + packages from the CDN is not counted in the run timeout, but must not hang forever either. */
+const LOAD_TIMEOUT_MS = 180_000;
 
 function cap(s: string): { text: string; truncated: boolean } {
   return s.length <= CODE_OUTPUT_CAP ? { text: s, truncated: false } : { text: `${s.slice(0, CODE_OUTPUT_CAP)}\n…[已截斷，原長 ${s.length} 字元]`, truncated: true };
@@ -67,8 +84,14 @@ function runInWorker(id: string, code: string, files: { path: string; data: Arra
   return new Promise<Extract<WorkerOut, { type: "done" }>>((resolve, reject) => {
     const w = getWorker();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let loadTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      cleanup();
+      killWorker();
+      reject(new Error(`載入 Python 環境超過 ${LOAD_TIMEOUT_MS / 1000} 秒仍未完成（請確認可連線到 cdn.jsdelivr.net），已中止`));
+    }, LOAD_TIMEOUT_MS);
     const cleanup = () => {
       if (timer) clearTimeout(timer);
+      if (loadTimer) clearTimeout(loadTimer);
       w.removeEventListener("message", onMsg);
       w.removeEventListener("error", onErr);
     };
@@ -78,6 +101,10 @@ function runInWorker(id: string, code: string, files: { path: string; data: Arra
       if (m.type === "status") {
         onPhase(m.phase);
         // The timeout covers execution only (Pyodide / package downloads can take a while on first use).
+        if (m.phase === "running" && loadTimer) {
+          clearTimeout(loadTimer);
+          loadTimer = undefined;
+        }
         if (m.phase === "running" && !timer) {
           timer = setTimeout(() => {
             cleanup();
@@ -109,11 +136,20 @@ function runInWorker(id: string, code: string, files: { path: string; data: Arra
 
 /**
  * Execute one pending client item. Returns the /client-results response (resume = re-POST /chat to continue),
- * or null when it was already started in this tab.
+ * or null when it was already started in this tab (`force` re-runs an item whose earlier attempt could not report).
+ * Every completion is also broadcast to `onClientToolDone` listeners.
  */
-export async function runClientTool(runId: string, a: PendingApprovalDTO): Promise<{ status: string; resume: boolean } | null> {
-  if (started.has(a.toolCallId)) return null;
+export async function runClientTool(runId: string, a: PendingApprovalDTO, opts: { force?: boolean } = {}): Promise<ClientToolOutcome | null> {
+  if (started.has(a.toolCallId)) {
+    if (!opts.force || cancels.has(a.toolCallId)) return null; // never run the same item twice at once
+  }
   started.add(a.toolCallId);
+  const r = await execClientTool(runId, a);
+  if (r) doneListeners.forEach((l) => l(runId, a.toolCallId, r));
+  return r;
+}
+
+async function execClientTool(runId: string, a: PendingApprovalDTO): Promise<ClientToolOutcome | null> {
   const args = a.args as ClientToolArgs;
   const ac = new AbortController();
   cancels.set(a.toolCallId, () => ac.abort());
@@ -173,13 +209,19 @@ export async function runClientTool(runId: string, a: PendingApprovalDTO): Promi
   } catch (e) {
     if ((e as Error).name === "AbortError") {
       phase("cancelled");
-      return api<{ status: string; resume: boolean }>(`/runs/${runId}/client-results`, { method: "POST", body: { toolCallId: a.toolCallId, cancel: true } });
+      return api<ClientToolOutcome>(`/runs/${runId}/client-results`, { method: "POST", body: { toolCallId: a.toolCallId, cancel: true } }).catch((err) => {
+        phase("error", `取消後回報失敗：${(err as Error).message}`);
+        return null;
+      });
     }
     phase("error", (e as Error).message);
     // Report the failure to the model instead of leaving the run hanging.
-    return api<{ status: string; resume: boolean }>(`/runs/${runId}/client-results`, {
+    return api<ClientToolOutcome>(`/runs/${runId}/client-results`, {
       method: "POST", body: { toolCallId: a.toolCallId, result: { ok: false, error: `瀏覽器端執行失敗：${(e as Error).message}` } },
-    }).catch(() => null);
+    }).catch((err) => {
+      phase("error", `${(e as Error).message}（回報結果也失敗：${(err as Error).message}）`);
+      return null;
+    });
   } finally {
     cancels.delete(a.toolCallId);
   }

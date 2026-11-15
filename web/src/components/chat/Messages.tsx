@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw } from "lucide-react";
 import type { Part, PendingApprovalDTO, StoredMessageDTO, ToolInfoDTO, ApprovalDecision } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
-import { ApprovalCard, Markdown, Reasoning, ToolCard, type ToolState } from "./Parts";
+import { ApprovalCard, Markdown, Reasoning, ToolCard, type ToolState, type WaitingKind } from "./Parts";
 import type { Tree, Turn } from "@/lib/tree";
 import { siblingsOf } from "@/lib/tree";
 
@@ -105,18 +105,23 @@ export function AssistantTurn(props: {
   live: LiveState | null;
   isLast: boolean;
   busy: boolean;
+  /** A run of this conversation is live (streaming, polling, or waiting on an approval / the browser). */
+  runActive: boolean;
+  /** The run stopped between segments or was cut off and can be continued (the page shows 繼續執行). */
+  runPaused: boolean;
   tools: ToolInfoDTO[];
   onRegenerate(): void;
   onSwitch(id: string): void;
   onDecide(a: PendingApprovalDTO, d: ApprovalDecision): Promise<void>;
   onAnswer(a: PendingApprovalDTO, answer: string): Promise<void>;
+  onStartClient(a: PendingApprovalDTO, force: boolean): void;
 }) {
   const { turn, live } = props;
   const riskOf = (name: string) => props.tools.find((t) => t.name === name)?.risk ?? "unknown";
   const results = new Map<string, { result: unknown; isError?: boolean }>();
   for (const m of turn.replies) for (const p of m.parts) if (p.type === "tool_result") results.set(p.callId, { result: p.result, isError: p.isError });
   if (props.isLast && live) for (const [k, v] of Object.entries(live.results)) if (!results.has(k)) results.set(k, v);
-  const waitingIds = new Set(props.isLast && live ? live.approvals.map((a) => a.toolCallId) : []);
+  const waiting = new Map<string, WaitingKind>(props.isLast && live ? live.approvals.map((a) => [a.toolCallId, a.kind]) : []);
 
   const firstAssistant = turn.replies.find((m) => m.role === "assistant");
   const copyText = turn.replies.filter((m) => m.role === "assistant").map((m) => textOfParts(m.parts)).filter(Boolean).join("\n\n");
@@ -125,8 +130,11 @@ export function AssistantTurn(props: {
   const callState = (id: string): ToolState => {
     const r = results.get(id);
     if (r) return r.isError ? "error" : "done";
-    if (waitingIds.has(id)) return "waiting";
-    return "running";
+    if (waiting.has(id)) return "waiting";
+    // No result: only the last turn of a live run can still produce one; otherwise never show 執行中 forever.
+    if (props.isLast && props.runActive) return "running";
+    if (props.isLast && props.runPaused) return "paused";
+    return "interrupted";
   };
 
   if (!turn.replies.length && !showLive) return null;
@@ -138,7 +146,7 @@ export function AssistantTurn(props: {
             {m.parts.map((p, i) => {
               if (p.type === "reasoning") return <Reasoning key={i} text={p.text} redacted={!!p.redacted && !p.text} />;
               if (p.type === "text") return p.text ? <Markdown key={i} text={p.text} /> : null;
-              if (p.type === "tool_call") return <ToolCard key={i} name={p.name} args={p.args} result={results.get(p.id)?.result} state={callState(p.id)} risk={riskOf(p.name)} />;
+              if (p.type === "tool_call") return <ToolCard key={i} name={p.name} args={p.args} result={results.get(p.id)?.result} state={callState(p.id)} waitingKind={waiting.get(p.id)} risk={riskOf(p.name)} />;
               if (p.type === "image") return <img key={i} src={p.data ? `data:${p.mime};base64,${p.data}` : p.url} alt="" className="my-2 max-h-96 rounded-lg" />;
               return null;
             })}
@@ -150,10 +158,10 @@ export function AssistantTurn(props: {
           {live.reasoning && <Reasoning text={live.reasoning} live={live.reasoningOpen} />}
           {live.text && <Markdown text={live.text} streaming />}
           {live.calls.map((c) => (
-            <ToolCard key={c.id} name={c.name} args={c.args} argsText={c.ended ? undefined : c.argsText} result={results.get(c.id)?.result} state={c.ended ? callState(c.id) : "streaming"} risk={riskOf(c.name)} />
+            <ToolCard key={c.id} name={c.name} args={c.args} argsText={c.ended ? undefined : c.argsText} result={results.get(c.id)?.result} state={c.ended ? callState(c.id) : "streaming"} waitingKind={waiting.get(c.id)} risk={riskOf(c.name)} />
           ))}
           {live.approvals.map((a) => (
-            <ApprovalCard key={a.id} a={a} onDecide={(d) => props.onDecide(a, d)} onAnswer={(ans) => props.onAnswer(a, ans)} />
+            <ApprovalCard key={a.id} a={a} onDecide={(d) => props.onDecide(a, d)} onAnswer={(ans) => props.onAnswer(a, ans)} onStartClient={(force) => props.onStartClient(a, force)} />
           ))}
           {live.error && <div className="my-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-destructive">{live.error}</div>}
           {props.busy && !live.text && !live.reasoning && !live.calls.length && !live.approvals.length && (
