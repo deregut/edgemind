@@ -1,7 +1,8 @@
 /**
  * Minimal S3 client on aws4fetch (SigV4, edge-compatible): object CRUD, ranged reads, server-side copy,
  * presigned URLs (browser-direct PUT / multipart parts / GET), multipart lifecycle, bucket CORS.
- * Path-style addressing (`{endpoint}/{bucket}/{key}`) — supported by R2, MinIO, B2, Neon Object Storage and AWS.
+ * Path-style addressing (`{endpoint}/{bucket}/{key}`) by default — supported by R2, MinIO, B2, Neon Object Storage and AWS;
+ * S3_FORCE_PATH_STYLE=false switches to virtual-hosted style (`{scheme}://{bucket}.{endpoint host}/{key}`).
  */
 import { AwsClient } from "aws4fetch";
 import type { AppEnv } from "../env";
@@ -25,10 +26,21 @@ export function encodeKey(key: string): string {
 export class S3 {
   private aws: AwsClient;
   private base: string;
+  private bucket: string;
+  private pathStyle: boolean;
 
-  constructor(env: Pick<AppEnv, "S3_ENDPOINT" | "S3_BUCKET" | "S3_REGION" | "S3_ACCESS_KEY_ID" | "S3_SECRET_ACCESS_KEY">, private f: Fetch = (...a) => fetch(...a)) {
+  constructor(env: Pick<AppEnv, "S3_ENDPOINT" | "S3_BUCKET" | "S3_REGION" | "S3_ACCESS_KEY_ID" | "S3_SECRET_ACCESS_KEY" | "S3_FORCE_PATH_STYLE">, private f: Fetch = (...a) => fetch(...a)) {
     this.aws = new AwsClient({ accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY, service: "s3", region: env.S3_REGION || "auto", retries: 0 });
-    this.base = `${env.S3_ENDPOINT.replace(/\/+$/, "")}/${encodeURIComponent(env.S3_BUCKET)}`;
+    this.bucket = env.S3_BUCKET;
+    const endpoint = env.S3_ENDPOINT.replace(/\/+$/, "");
+    const pathStyle = (this.pathStyle = !["false", "0"].includes((env.S3_FORCE_PATH_STYLE ?? "").trim().toLowerCase()));
+    if (pathStyle) {
+      this.base = `${endpoint}/${encodeURIComponent(env.S3_BUCKET)}`;
+    } else {
+      const u = new URL(endpoint);
+      u.hostname = `${env.S3_BUCKET}.${u.hostname}`;
+      this.base = u.toString().replace(/\/+$/, "");
+    }
   }
 
   url(key: string, query?: Record<string, string>): string {
@@ -82,8 +94,7 @@ export class S3 {
   }
 
   async copy(srcKey: string, dstKey: string): Promise<void> {
-    const bucket = decodeURIComponent(this.base.slice(this.base.lastIndexOf("/") + 1));
-    await this.send(this.url(dstKey), { method: "PUT", headers: { "x-amz-copy-source": `/${encodeURIComponent(bucket)}/${encodeKey(srcKey)}` } });
+    await this.send(this.url(dstKey), { method: "PUT", headers: { "x-amz-copy-source": `/${encodeURIComponent(this.bucket)}/${encodeKey(srcKey)}` } });
   }
 
   /** Presigned URL (query-string SigV4) for browser-direct access. */
@@ -125,6 +136,6 @@ export class S3 {
       origins.map((o) => `<AllowedOrigin>${xmlEscape(o)}</AllowedOrigin>`).join("") +
       `<AllowedMethod>GET</AllowedMethod><AllowedMethod>PUT</AllowedMethod><AllowedMethod>HEAD</AllowedMethod>` +
       `<AllowedHeader>*</AllowedHeader><ExposeHeader>ETag</ExposeHeader><MaxAgeSeconds>3600</MaxAgeSeconds></CORSRule></CORSConfiguration>`;
-    await this.send(`${this.base}?cors=`, { method: "PUT", body: xml, headers: { "content-type": "application/xml", "content-md5": md5Base64(new TextEncoder().encode(xml)) } });
+    await this.send(`${this.base}${this.pathStyle ? "" : "/"}?cors=`, { method: "PUT", body: xml, headers: { "content-type": "application/xml", "content-md5": md5Base64(new TextEncoder().encode(xml)) } });
   }
 }

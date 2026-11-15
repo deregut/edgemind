@@ -52,6 +52,7 @@ const mockFetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
 // ---------------- tools ----------------
 
 const executed: string[] = [];
+const toolSpans: Record<string, [number, number]> = {};
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const writeNote: Tool = {
   name: "write_note",
@@ -71,6 +72,7 @@ const slowRead = (name: string): Tool => ({
   async execute() {
     const t = Date.now();
     await sleep(150);
+    toolSpans[name] = [t, Date.now()];
     executed.push(name);
     return { startedAt: t };
   },
@@ -165,9 +167,10 @@ describe("agent loop: basics", () => {
       calls([{ id: "c1", name: "slow_a", args: {} }, { id: "c2", name: "slow_b", args: {} }, { id: "c3", name: "echo", args: { text: "hi" } }]),
       text("完成"),
     ];
-    const t0 = Date.now();
     const r = await chat({ content: "go", modelId: modelRowId });
-    expect(Date.now() - t0).toBeLessThan(290); // 2×150ms tools in parallel
+    // 2×150 ms tools in parallel: their execution windows overlap (robust under a loaded full-suite run, unlike a wall-clock bound)
+    const [a0, a1] = toolSpans.slow_a, [b0, b1] = toolSpans.slow_b;
+    expect(Math.max(a0, b0)).toBeLessThan(Math.min(a1, b1));
     expect(last(r.events)).toMatchObject({ status: "completed" });
     expect(r.events.filter((e) => e.type === "tool-result").length).toBe(3);
     const toolMsgs = llmBodies[1].messages.filter((m: any) => m.role === "tool");

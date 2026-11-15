@@ -18,6 +18,11 @@ export async function createTestDatabase(): Promise<{ database: Database; url: s
   await admin.end();
   const url = ADMIN_URL.replace(/\/[^/]*$/, `/${name}`);
   const pool = new pg.Pool({ connectionString: url, max: 4 });
+  // drop() force-terminates sessions; a connection still closing (or held by fire-and-forget background work such as
+  // memory extraction) then receives FATAL 57P01. Swallow those so they don't surface as unhandled errors.
+  const ignore = () => {};
+  pool.on("error", ignore);
+  pool.on("connect", (client) => client.on("error", ignore));
   const database: Database = {
     db: drizzle({ client: pool, schema }) as unknown as AppDb,
     async execTransaction(statements) {

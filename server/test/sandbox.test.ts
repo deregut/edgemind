@@ -244,7 +244,9 @@ describe("idempotent resume", () => {
     const firstResult = toolMsgs(h.llmBodies[1])[0];
 
     // Simulate a crash after the tool result was recorded in run_steps but before the checkpoint kept it.
-    const [asst] = await h.t.database.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "assistant")));
+    // Two assistant rows exist (tool call + final text); no ORDER BY → pick the one holding the call explicitly.
+    const assts = await h.t.database.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "assistant")));
+    const asst = assts.find((m) => (m.parts as any[]).some((p) => p.type === "tool_call"))!;
     const call = (asst.parts as any[]).find((p) => p.type === "tool_call");
     await h.t.database.db.update(runs).set({ status: "paused", finishedAt: null, checkpoint: { leafId: asst.id, pending: { calls: [call], results: {} } } }).where(eq(runs.id, runId));
     h.llmBodies = [];

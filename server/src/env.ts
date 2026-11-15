@@ -10,6 +10,8 @@ export interface AppEnv {
   S3_SECRET_ACCESS_KEY: string;
   ENCRYPTION_KEY: string;
   JWT_SECRET: string;
+  /** Optional. "true" (default) = path-style `{endpoint}/{bucket}/{key}`; "false" = virtual-hosted `{bucket}.{endpoint host}/{key}`. */
+  S3_FORCE_PATH_STYLE?: string;
 }
 
 export const ENV_KEYS = [
@@ -17,7 +19,10 @@ export const ENV_KEYS = [
   "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "ENCRYPTION_KEY", "JWT_SECRET",
 ] as const satisfies readonly (keyof AppEnv)[];
 
-const HINTS: Record<keyof AppEnv, string> = {
+/** Optional variables (read by the platform adapters, never required). */
+export const OPTIONAL_ENV_KEYS = ["S3_FORCE_PATH_STYLE"] as const satisfies readonly (keyof AppEnv)[];
+
+const HINTS: Record<(typeof ENV_KEYS)[number], string> & Partial<Record<keyof AppEnv, string>> = {
   DATABASE_URL: "Neon Postgres 連線字串，例如 postgresql://user:pass@ep-xxx.neon.tech/db?sslmode=require",
   S3_ENDPOINT: "S3 相容端點，例如 https://<account>.r2.cloudflarestorage.com",
   S3_BUCKET: "Bucket 名稱",
@@ -57,7 +62,7 @@ export function validateEnv(raw: Record<string, unknown>): EnvValidation {
   for (const k of ENV_KEYS) {
     if (!get(k)) issues.push({ key: k, problem: "missing", hint: HINTS[k] });
   }
-  const bad = (k: keyof AppEnv, hint?: string) => issues.push({ key: k, problem: "invalid", hint: hint ?? HINTS[k] });
+  const bad = (k: keyof AppEnv, hint?: string) => issues.push({ key: k, problem: "invalid", hint: hint ?? HINTS[k] ?? "" });
   const db = get("DATABASE_URL");
   if (db && !/^postgres(ql)?:\/\//.test(db)) bad("DATABASE_URL");
   const ep = get("S3_ENDPOINT");
@@ -67,7 +72,11 @@ export function validateEnv(raw: Record<string, unknown>): EnvValidation {
   const js = get("JWT_SECRET");
   if (js && js.length < 32) bad("JWT_SECRET", "長度至少 32 字元（openssl rand -base64 48）");
 
+  const ps = get("S3_FORCE_PATH_STYLE").toLowerCase();
+  if (ps && !["true", "false", "1", "0"].includes(ps)) bad("S3_FORCE_PATH_STYLE", "選填：true（預設，路徑式）或 false（虛擬主機式）");
+
   if (issues.length) return { ok: false, issues };
   const env = Object.fromEntries(ENV_KEYS.map((k) => [k, get(k)])) as unknown as AppEnv;
+  if (ps) env.S3_FORCE_PATH_STYLE = ps;
   return { ok: true, issues: [], env };
 }

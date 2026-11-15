@@ -4,7 +4,7 @@
  */
 import { createApp } from "../app";
 import { createNeonDatabase } from "../db/client";
-import { ENV_KEYS } from "../env";
+import { ENV_KEYS, OPTIONAL_ENV_KEYS } from "../env";
 import type { Platform } from "../context";
 import { useNodeQuickJS } from "../sandbox/quickjs-node";
 import { cronInternalToken } from "../routes/schedules";
@@ -19,7 +19,7 @@ declare const Netlify: { env: { get(k: string): string | undefined } } | undefin
 
 function readEnv(): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of ENV_KEYS) {
+  for (const k of [...ENV_KEYS, ...OPTIONAL_ENV_KEYS]) {
     out[k] = (typeof Netlify !== "undefined" ? Netlify.env.get(k) : undefined) ?? process.env[k];
   }
   return out;

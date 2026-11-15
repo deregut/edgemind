@@ -1,9 +1,34 @@
-node_modules
-dist
-.netlify
-.wrangler
+# 相依套件
+node_modules/
+
+# 建置產出
+dist/
+build-out/
+*.tsbuildinfo
+coverage/
+
+# 平台本機狀態
+.netlify/
+.wrangler/
 .dev.vars
+.dev.vars.*
+
+# 環境變數與密鑰（只保留範本）
 .env
+.env.*
 !.env.example
+*.pem
+*.key
+
+# 本機資料庫（scripts/test-db.sh 預設放在 /tmp，自訂 PGDATA_DIR 放在專案內時也忽略）
+edgemind-pgdata/
+pgdata/
+*.sqlite
+*.db
+
+# 其他
 *.log
-build-out
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

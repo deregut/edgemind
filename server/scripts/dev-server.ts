@@ -6,12 +6,12 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { createApp } from "../src/app";
 import { createNeonDatabase, type AppDb, type Database } from "../src/db/client";
 import * as schema from "../src/db/schema";
-import { ENV_KEYS } from "../src/env";
+import { ENV_KEYS, OPTIONAL_ENV_KEYS } from "../src/env";
 import { useNodeQuickJS } from "../src/sandbox/quickjs-node";
 
 useNodeQuickJS();
 
-const env = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+const env = Object.fromEntries([...ENV_KEYS, ...OPTIONAL_ENV_KEYS].map((k) => [k, process.env[k]]));
 
 function localDatabase(url: string): Database {
   const pool = new pg.Pool({ connectionString: url });
