@@ -1,0 +1,11 @@
+name = "edgemind-cron"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+# 每 15 分鐘（Workers 免費方案可設定 cron trigger）
+crons = ["*/15 * * * *"]
+
+[vars]
+# 改成你的 EdgeMind Pages 網址；CRON_TOKEN 請用 `npx wrangler secret put CRON_TOKEN` 設定（值從 EdgeMind「排程」頁產生）
+EDGEMIND_URL = "https://your-edgemind.pages.dev"

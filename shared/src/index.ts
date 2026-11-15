@@ -6,3 +6,4 @@ export * from "./workspace";
 export * from "./kb";
 export * from "./skills";
 export * from "./sandbox";
+export * from "./schedule";

@@ -7,6 +7,7 @@ import { createNeonDatabase } from "../db/client";
 import { ENV_KEYS } from "../env";
 import type { Platform } from "../context";
 import { useNodeQuickJS } from "../sandbox/quickjs-node";
+import { cronInternalToken } from "../routes/schedules";
 
 useNodeQuickJS();
 
@@ -78,4 +79,21 @@ export async function handleNetlify(req: Request, context: NetlifyContext): Prom
   envObj ??= readEnv(); // stable object identity -> env validation cached per instance
   const waitUntil = context?.waitUntil?.bind(context) ?? ((p: Promise<unknown>) => void p.catch(() => {}));
   return app.fetch(req, envObj, { waitUntil, passThroughOnException() {}, props: {} } as never);
+}
+
+/**
+ * Entry of netlify/functions/cron-tick.ts (Netlify Scheduled Function, `config.schedule`). Calls the dispatcher
+ * in-process with an HMAC token; runs it starts are handed to agent-background as usual. The site origin comes
+ * from Netlify's built-in `URL` variable (set automatically on every deploy).
+ */
+export async function handleNetlifyCron(_req: Request, context: NetlifyContext): Promise<Response> {
+  envObj ??= readEnv();
+  const site = (typeof Netlify !== "undefined" ? Netlify.env.get("URL") : undefined) ?? process.env.URL ?? process.env.DEPLOY_PRIME_URL;
+  if (!site) return new Response("missing URL", { status: 500 });
+  const secret = String(envObj.JWT_SECRET ?? "");
+  const inner = new Request(`${site.replace(/\/$/, "")}/api/cron/tick`, { method: "POST", headers: { "x-edgemind-cron": await cronInternalToken(secret) } });
+  const waitUntil = context?.waitUntil?.bind(context) ?? ((p: Promise<unknown>) => void p.catch(() => {}));
+  const res = await app.fetch(inner, envObj, { waitUntil, passThroughOnException() {}, props: {} } as never);
+  console.log("[edgemind] cron tick", res.status, await res.clone().text().catch(() => ""));
+  return res;
 }

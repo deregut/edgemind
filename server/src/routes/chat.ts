@@ -146,7 +146,13 @@ async function sanitizeClientResult(c: Ctx, raw: any): Promise<ClientToolResult>
   };
 }
 
-export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
+/** Helpers other routes (scheduler) use to start agent runs. */
+export interface ChatApi {
+  /** New conversation + user message + background run, started immediately. */
+  startConversationRun(c: Ctx, args: { prompt: string; title: string; projectId: string | null; modelId: string | null; permissionMode: string | null }): Promise<{ runId: string; conversationId: string }>;
+}
+
+export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
   const registry = deps.tools ?? builtinRegistry();
   const segmentBudget = deps.platform?.segment ?? DEFAULT_SEGMENT;
   const backgroundBudget = deps.platform?.background ?? DEFAULT_BACKGROUND;
@@ -470,4 +476,29 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps) {
     runInBackground(c, work());
     return c.json({ accepted: true }, 202);
   });
+
+  return {
+    async startConversationRun(c, a) {
+      const database = c.get("database");
+      const db = database.db;
+      await ensureBuiltinSkills(new SkillStore(database, fileStore(c, deps).s3));
+      if (a.permissionMode !== null && !isPermissionMode(a.permissionMode)) throw new BadInput("未知的權限模式");
+      let modelId: string;
+      try {
+        modelId = await pickModel(c, a.modelId ?? undefined, { modelId: null, projectId: a.projectId });
+      } catch (e) {
+        if (a.modelId && e instanceof BadInput) modelId = await pickModel(c, undefined, { modelId: null, projectId: a.projectId }); // model deleted → default
+        else throw e;
+      }
+      const [conv] = await db.insert(conversations).values({ projectId: a.projectId, permissionMode: a.permissionMode, title: a.title.slice(0, 80) || "排程任務" }).returning();
+      const msg = await insertMessage(database, { conversationId: conv.id, parentId: null, role: "user", parts: [{ type: "text", text: a.prompt }] });
+      const [run] = await db.insert(runs).values({
+        conversationId: conv.id, userMessageId: msg.id, status: "pending", mode: "background", modelId,
+        permissionMode: a.permissionMode, maxSteps: await maxStepsSetting(c, undefined), checkpoint: { leafId: msg.id } satisfies Checkpoint,
+      }).returning();
+      await db.update(messages).set({ runId: run.id }).where(eq(messages.id, msg.id));
+      await startBackground(c, run.id);
+      return { runId: run.id, conversationId: conv.id };
+    },
+  };
 }

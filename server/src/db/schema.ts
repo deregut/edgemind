@@ -432,3 +432,38 @@ export const secrets = pgTable("secrets", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [uniqueIndex("secrets_name_uq").on(t.name)]);
+
+// ---------- scheduled tasks (M11b) ----------
+
+/** Agent tasks run on a schedule by the cron dispatcher (POST /api/cron/tick). See server/src/scheduler/. */
+export const scheduledTasks = pgTable("scheduled_tasks", {
+  id: id(),
+  name: text("name").notNull(),
+  prompt: text("prompt").notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  modelId: uuid("model_id"),
+  permissionMode: text("permission_mode"),
+  /** ScheduleSpec (type once|interval|daily|weekly|cron + fields + IANA timezone). */
+  schedule: jsonb("schedule").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+  /** Claim lease of the dispatcher (prevents double runs across concurrent ticks). */
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastRunId: uuid("last_run_id"),
+  lastError: text("last_error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [index("scheduled_tasks_due_idx").on(t.enabled, t.nextRunAt)]);
+
+/** One row per execution of a scheduled task (status comes from the joined run). */
+export const scheduledTaskRuns = pgTable("scheduled_task_runs", {
+  id: id(),
+  taskId: uuid("task_id").notNull().references(() => scheduledTasks.id, { onDelete: "cascade" }),
+  runId: uuid("run_id"),
+  conversationId: uuid("conversation_id"),
+  trigger: text("trigger").notNull(), // schedule | manual
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+  error: text("error"),
+  createdAt: createdAt(),
+}, (t) => [index("scheduled_task_runs_task_idx").on(t.taskId, t.createdAt)]);

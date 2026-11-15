@@ -27,6 +27,8 @@ export const MIN_PASSWORD_LEN = 10;
 
 /** Internal routes verify their own HMAC token (see routes/chat.ts drive endpoint). */
 export const INTERNAL_PREFIX = "/api/internal/";
+/** Token-authenticated cron dispatcher (no cookie / CSRF): POST /api/cron/tick. */
+export const CRON_PREFIX = "/api/cron/";
 /** The MCP OAuth callback is a cross-site redirect (SameSite=Strict cookies absent): authenticated by its single-use `state`. */
 const PUBLIC_PATHS = new Set(["/api/auth/setup", "/api/auth/login", "/api/mcp/oauth/callback"]);
 
@@ -45,7 +47,7 @@ export function ensureCsrfCookie(c: Ctx): string {
 /** CSRF for all state-changing requests. */
 export const csrfGuard: MiddlewareHandler<HonoEnv> = async (c, next) => {
   const m = c.req.method;
-  if (c.req.path.startsWith(INTERNAL_PREFIX)) return next(); // HMAC-signed server-to-server calls
+  if (c.req.path.startsWith(INTERNAL_PREFIX) || c.req.path.startsWith(CRON_PREFIX)) return next(); // HMAC/token-authenticated server-to-server calls
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return next();
   const origin = c.req.header("origin");
   if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: "csrf", message: "來源不符（Origin）" }, 403);
@@ -86,7 +88,7 @@ export async function isAuthenticated(c: Ctx, env: AppEnv, database: Database): 
 }
 
 export const requireAuth: MiddlewareHandler<HonoEnv> = async (c, next) => {
-  if (PUBLIC_PATHS.has(c.req.path) || c.req.path.startsWith(INTERNAL_PREFIX)) return next();
+  if (PUBLIC_PATHS.has(c.req.path) || c.req.path.startsWith(INTERNAL_PREFIX) || c.req.path.startsWith(CRON_PREFIX)) return next();
   const sid = await readSession(c, c.get("env"), c.get("database"));
   if (!sid) return c.json({ error: "unauthorized", message: "請先登入" }, 401);
   c.set("sessionId", sid);

@@ -153,5 +153,17 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "CREATE TABLE \"secrets\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"value_enc\" text NOT NULL,\n\t\"value_preview\" text,\n\t\"allowed_domains\" jsonb DEFAULT '[]'::jsonb NOT NULL,\n\t\"description\" text DEFAULT '' NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
    "CREATE UNIQUE INDEX \"secrets_name_uq\" ON \"secrets\" USING btree (\"name\");"
   ]
+ },
+ {
+  "tag": "0008_greedy_warlock",
+  "hash": "c0b534ce96f5a2f0899304709fd0d56175b2f545729d951d2a271cf26beb0ccb",
+  "statements": [
+   "CREATE TABLE \"scheduled_task_runs\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"task_id\" uuid NOT NULL,\n\t\"run_id\" uuid,\n\t\"conversation_id\" uuid,\n\t\"trigger\" text NOT NULL,\n\t\"scheduled_for\" timestamp with time zone,\n\t\"error\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+   "CREATE TABLE \"scheduled_tasks\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"prompt\" text NOT NULL,\n\t\"project_id\" uuid,\n\t\"model_id\" uuid,\n\t\"permission_mode\" text,\n\t\"schedule\" jsonb NOT NULL,\n\t\"enabled\" boolean DEFAULT true NOT NULL,\n\t\"next_run_at\" timestamp with time zone,\n\t\"lease_until\" timestamp with time zone,\n\t\"last_run_at\" timestamp with time zone,\n\t\"last_run_id\" uuid,\n\t\"last_error\" text,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+   "ALTER TABLE \"scheduled_task_runs\" ADD CONSTRAINT \"scheduled_task_runs_task_id_scheduled_tasks_id_fk\" FOREIGN KEY (\"task_id\") REFERENCES \"public\".\"scheduled_tasks\"(\"id\") ON DELETE cascade ON UPDATE no action;",
+   "ALTER TABLE \"scheduled_tasks\" ADD CONSTRAINT \"scheduled_tasks_project_id_projects_id_fk\" FOREIGN KEY (\"project_id\") REFERENCES \"public\".\"projects\"(\"id\") ON DELETE set null ON UPDATE no action;",
+   "CREATE INDEX \"scheduled_task_runs_task_idx\" ON \"scheduled_task_runs\" USING btree (\"task_id\",\"created_at\");",
+   "CREATE INDEX \"scheduled_tasks_due_idx\" ON \"scheduled_tasks\" USING btree (\"enabled\",\"next_run_at\");"
+  ]
  }
 ];

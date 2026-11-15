@@ -57,6 +57,13 @@
       "when": 1794674755077,
       "tag": "0007_woozy_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794710047822,
+      "tag": "0008_greedy_warlock",
+      "breakpoints": true
     }
   ]
 }

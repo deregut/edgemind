@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { Archive, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { Archive, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import type { ConversationDTO } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
@@ -106,7 +106,12 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
         )}
       </div>
 
-      <div className="flex items-center gap-1 border-t pt-2">
+      <div className="border-t pt-2">
+        <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+          <Link to="/schedules" onClick={onNavigate}><CalendarClock /> 排程</Link>
+        </Button>
+      </div>
+      <div className="flex items-center gap-1 pt-1">
         <Button asChild variant="ghost" size="sm" className="flex-1 justify-start">
           <Link to="/settings" onClick={onNavigate}><Settings /> 設定</Link>
         </Button>
