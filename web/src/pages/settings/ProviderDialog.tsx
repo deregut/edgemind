@@ -82,7 +82,9 @@ export function ProviderDialog({ type, open, onOpenChange, editing, onSaved }: P
     setConfig({});
   }
 
-  const spec = getKindSpec(type, kind)!;
+  // `kind` can still hold the previous type's value right after the type tab changes (it is only
+  // reset when the dialog opens), so fall back to this type's first kind instead of crashing.
+  const spec = getKindSpec(type, kind) ?? kinds[0];
   const keyRequired = type === "llm" && !editing ? LLM_PRESETS[preset].keyRequired || spec.keyRequired : spec.keyRequired;
 
   function payload() {
