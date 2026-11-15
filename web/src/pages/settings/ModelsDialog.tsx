@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { useWorkspace } from "@/lib/workspace";
 
 interface SavedModel {
   modelId: string;
@@ -23,6 +24,7 @@ const CAPS: { key: string; label: string }[] = [
 ];
 
 export function ModelsDialog({ provider, onOpenChange }: { provider: ProviderDTO | null; onOpenChange: (o: boolean) => void }) {
+  const ws = useWorkspace();
   const [remote, setRemote] = useState<ModelInfo[]>([]);
   const [picked, setPicked] = useState<Map<string, SavedModel>>(new Map());
   const [manual, setManual] = useState("");
@@ -89,6 +91,7 @@ export function ModelsDialog({ provider, onOpenChange }: { provider: ProviderDTO
     try {
       await api(`/providers/${provider.id}/models`, { method: "PUT", body: { models: [...picked.values()] } });
       toast.success(`已儲存 ${picked.size} 個模型`);
+      await ws.refreshMeta().catch(() => {});
       onOpenChange(false);
     } catch (e) {
       toast.error((e as Error).message);
