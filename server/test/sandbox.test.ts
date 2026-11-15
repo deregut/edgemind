@@ -4,7 +4,9 @@ import type { AgentEvent } from "../../shared/src/index";
 import { auditLogs, fileVersions, files, messages, runs, toolApprovals } from "../src/db/schema";
 import { parseSse } from "../src/llm";
 import { runJavaScript } from "../src/sandbox/quickjs";
-import { PYTHON_NEEDS_BROWSER } from "../src/tools/code";
+import { PYTHON_NEEDS_BROWSER, codeRunTool } from "../src/tools/code";
+import { runLiveness } from "../src/routes/chat";
+import { STALE_LEASE_MS } from "../src/agent/store";
 import type { Platform } from "../src/context";
 import { Harness, callsReply, lastEvent, runIdOf, textReply } from "./harness";
 import { S3Mock } from "./s3-mock";
@@ -227,6 +229,61 @@ describe("code_run python (browser-side client tool)", () => {
     const res = toolMsgs(h.llmBodies[1])[0];
     expect(res).toBe(PYTHON_NEEDS_BROWSER);
     expect(res).toContain("e2b-sandbox");
+  });
+});
+
+describe("interrupted / resumable runs (UI must never wait forever)", () => {
+  it("runLiveness: stale leases and stream runs that only a `continue` moves on", () => {
+    const now = Date.now();
+    const old = new Date(now - STALE_LEASE_MS - 1000);
+    const fresh = new Date(now - 1000);
+    expect(runLiveness({ status: "running", mode: "stream", updatedAt: fresh }, now)).toEqual({ stale: false, resumable: false });
+    expect(runLiveness({ status: "running", mode: "stream", updatedAt: old }, now)).toEqual({ stale: true, resumable: true });
+    expect(runLiveness({ status: "pending", mode: "stream", updatedAt: old }, now)).toEqual({ stale: true, resumable: true });
+    expect(runLiveness({ status: "paused", mode: "stream", updatedAt: fresh }, now)).toEqual({ stale: false, resumable: true });
+    expect(runLiveness({ status: "paused", mode: "background", updatedAt: fresh }, now)).toEqual({ stale: false, resumable: false });
+    expect(runLiveness({ status: "stopping", mode: "stream", updatedAt: old }, now)).toEqual({ stale: true, resumable: false });
+    expect(runLiveness({ status: "waiting_approval", mode: "stream", updatedAt: old }, now)).toEqual({ stale: false, resumable: false });
+  });
+
+  it("project chat: python client item survives a lost stream; reload sees it, then paused / stale runs are resumable", async () => {
+    h.script = [callsReply([{ id: "pyx", name: "code_run", args: { language: "python", code: "import os\nos.makedirs('ai-blog-astro/docs', exist_ok=True)\nprint('ok')" } }])];
+    const r = await h.chat({ content: "建立資料夾", projectId: pid, permissionMode: "full" });
+    const runId = runIdOf(r.events);
+    const conv = (r.events.find((e) => e.type === "run") as any).conversationId;
+    const c = h.client();
+    // What a page sees after its SSE stream was cut before `approval-required` / `done`.
+    let m = await c.get(`/conversations/${conv}/messages`);
+    expect(m.body.activeRun).toMatchObject({ id: runId, status: "waiting_approval", mode: "stream", resumable: false, stale: false });
+    expect(m.body.activeRun.approvals).toEqual([expect.objectContaining({ kind: "client", toolCallId: "pyx", toolName: "code_run" })]);
+    expect(m.body.activeRun.approvals[0].args).toMatchObject({ language: "python", projectId: pid, conversationId: conv });
+
+    // Browser reports the result; the run is paused until the page continues it.
+    const post = await c.post(`/runs/${runId}/client-results`, { toolCallId: "pyx", result: { ok: true, stdout: "ok\n", stderr: "", result: null } });
+    expect(post.body).toMatchObject({ status: "paused", resume: true });
+    m = await c.get(`/conversations/${conv}/messages`);
+    expect(m.body.activeRun).toMatchObject({ status: "paused", resumable: true });
+    expect((await c.get(`/runs/${runId}/events?after=0`)).body).toMatchObject({ status: "paused", mode: "stream", resumable: true });
+
+    // A segment that died mid-work (platform time limit) leaves `running` with an expired lease: resumable, and continue works.
+    await h.t.database.db.update(runs).set({ status: "running", updatedAt: new Date(Date.now() - STALE_LEASE_MS - 5000) }).where(eq(runs.id, runId));
+    m = await c.get(`/conversations/${conv}/messages`);
+    expect(m.body.activeRun).toMatchObject({ status: "running", stale: true, resumable: true });
+    expect((await c.get(`/runs/${runId}`)).body).toMatchObject({ stale: true, resumable: true });
+    h.script = [textReply("完成")];
+    const r2 = await h.chat({ runId, action: "continue" });
+    expect(lastEvent(r2.events)).toMatchObject({ type: "done", status: "completed" });
+    expect(toolMsgs(h.llmBodies[1])[0]).toMatchObject({ ok: true, stdout: "ok\n" });
+    expect((await c.get(`/conversations/${conv}/messages`)).body.activeRun).toBeNull();
+  });
+
+  it("code_run description steers project file work to the file tools and describes Pyodide accurately", () => {
+    const d = codeRunTool.description;
+    expect(d).toContain("file_write");
+    expect(d).toContain("不要用 code_run 建立");
+    expect(d).toContain("Python 沒有 fs 物件");
+    expect(d).toContain("空資料夾");
+    expect(d).toContain("工作目錄");
   });
 });
 

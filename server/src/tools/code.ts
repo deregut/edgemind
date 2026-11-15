@@ -173,12 +173,17 @@ async function runJs(args: any, ctx: ToolContext) {
 export const codeRunTool: Tool = {
   name: "code_run",
   description:
-    "執行程式碼。language=javascript：在伺服器端 QuickJS 沙盒執行（ES2023、無網路、無 Node API、無 setTimeout；記憶體 64 MB；預設 10 秒、最長 30 秒）。" +
-    "最後一個運算式的值會回傳；使用 await 時請用 return 回傳。可用 console.log；虛擬檔案系統：fs.readFile(path[, 'utf8'|'base64'|'binary'])、" +
+    "執行程式碼，用於計算、資料處理、產生圖表等。不要用 code_run 建立、修改或刪除專案的檔案或資料夾：" +
+    "請改用 file_write / file_edit / file_delete（專案沒有獨立的「資料夾」，寫入 a/b/c.md 時資料夾就自動存在；空資料夾不會被保存）。" +
+    "language=javascript：在伺服器端 QuickJS 沙盒執行（ES2023、無網路、無 Node API、無 setTimeout；記憶體 64 MB；預設 10 秒、最長 30 秒）。" +
+    "最後一個運算式的值會回傳；使用 await 時請用 return 回傳。可用 console.log；虛擬檔案系統（僅 JavaScript）：fs.readFile(path[, 'utf8'|'base64'|'binary'])、" +
     "fs.writeFile(path, string|Uint8Array[, 'base64'])、fs.listFiles(prefix)、fs.exists、fs.deleteFile。" +
     "files 參數可掛載專案檔案（路徑；結尾加 / 掛載整個資料夾；合計 ≤10 MB），寫入的檔案會存回專案（保留舊版本）。" +
-    "language=python：在使用者瀏覽器的 Pyodide 執行（需要開啟中的聊天分頁，背景模式不可用；預設 30 秒、最長 120 秒；import numpy/pandas/matplotlib 會自動安裝，可用 micropip）；" +
-    "掛載的檔案位於工作目錄，新增或修改的檔案與 matplotlib 圖表（自動存成 PNG）會上傳回專案。輸出各上限 20,000 字元，過長時完整輸出另存為專案檔。",
+    "language=python：在使用者瀏覽器的 Pyodide 執行（需要開啟中的聊天分頁，背景模式不可用；預設 30 秒、最長 120 秒；import numpy/pandas/matplotlib 會自動安裝，可用 micropip）。" +
+    "Python 沒有 fs 物件，請用 open()、pathlib、os。每次執行都是全新的工作目錄（目前目錄）與全域變數，執行結束後即刪除，不會保留到下一次；" +
+    "files 掛載的檔案會放在工作目錄中同樣的相對路徑。執行後，工作目錄內新增或內容有變更的「檔案」會上傳回專案的同一相對路徑（僅限專案內對話；最多 50 個、每個 ≤5 MB），" +
+    "matplotlib 圖表會自動存成 figures/*.png 一併上傳；空資料夾、工作目錄以外的路徑（例如 /tmp 或絕對路徑）都不會保存，刪除掛載的檔案也不會刪除專案中的檔案。" +
+    "結果中的 files 列出實際存回專案的檔案。輸出各上限 20,000 字元，過長時完整輸出另存為專案檔。",
   risk: "dangerous",
   nonIdempotent: true,
   parameters: {

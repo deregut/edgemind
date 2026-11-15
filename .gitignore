@@ -32,3 +32,7 @@ pgdata/
 Thumbs.db
 .vscode/
 .idea/
+
+# Playwright（E2E）
+test-results/
+playwright-report/
