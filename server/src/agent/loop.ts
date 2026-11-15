@@ -274,6 +274,20 @@ async function segmentBody(
   }
   /** Project tool filter (`enabledTools`, null = all) + project-only tools. */
   const toolAvailable = (t: Tool) => (!t.projectOnly || !!projectId) && (enabledTools === null || enabledTools.includes(t.name));
+  /** Why http_request (the only way to use vault secrets) is not usable in this run — stated in the # 密鑰 section. */
+  const httpUnavailable = ((): string | null => {
+    const t = registry.get("http_request");
+    if (!t) return null;
+    if (!toolAvailable(t)) {
+      return "這個專案的「啟用的工具」沒有勾選 http_request（可能是在新增這個工具之前就自訂過專案的工具清單）。解決方法：請使用者到這個專案的設定 →「啟用的工具」勾選 http_request，或開啟「啟用全部工具」";
+    }
+    if (mode === "plan") {
+      return "目前的權限模式是「唯讀（Plan）」，只提供讀取類工具，http_request 不會提供給你。解決方法：請使用者把這個對話（聊天輸入框旁的權限選單）或專案預設的權限模式改成「一般」或以上，再重新送出";
+    }
+    const d = evaluate({ mode, toolName: t.name, risk: t.risk, targets: {}, policies, grants });
+    if (d.decision === "deny") return `權限規則禁止 http_request（${d.reason}）。解決方法：請使用者檢查 http_request 的權限規則`;
+    return null;
+  })();
   const fullCaps = mode === "full" ? await getFullModeCaps(db) : null;
   const prices = await getModelPrices(db);
 
@@ -547,7 +561,7 @@ async function segmentBody(
     }
 
     // ---------- 3. model step ----------
-    let ctx = await assembleContext(db, conversationId, cp.leafId, hooks);
+    let ctx = await assembleContext(db, conversationId, cp.leafId, hooks, { httpUnavailable });
     const tools = registry.defs((t) => toolAvailable(t) && (mode === "plan" ? t.risk === "read" : true));
     // Compaction (M10): summarize older turns when the prompt nears the model's context window.
     {
@@ -561,7 +575,7 @@ async function segmentBody(
           const r = await maybeCompact(db, conversationId, cp.leafId, model, { systemTokens: fixed + slack, signal: workSignal, helper });
           if (r.compacted) {
             await appendStep(db, runId, "compacted", { summarizedMessages: r.summarizedMessages });
-            ctx = await assembleContext(db, conversationId, cp.leafId, hooks);
+            ctx = await assembleContext(db, conversationId, cp.leafId, hooks, { httpUnavailable });
           }
         } catch (e) {
           if (workSignal.aborted) return stopSignal.aborted ? finalizeStopped() : pause("deadline");

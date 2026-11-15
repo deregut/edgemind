@@ -365,7 +365,7 @@ export function ProjectSkills({ p, onSaved }: { p: ProjectDTO; onSaved(p: Projec
       </CardHeader>
       <CardContent className="space-y-3">
         <label className="flex items-center gap-3 text-sm font-medium">
-          <Switch checked={all} onCheckedChange={(v) => save(v ? null : (skills ?? []).map((s) => s.id))} />
+          <Switch checked={all} disabled={!skills} onCheckedChange={(v) => save(v ? null : (skills ?? []).map((s) => s.id))} />
           啟用全部 Skills（包含之後新增的）
         </label>
         {!skills ? (

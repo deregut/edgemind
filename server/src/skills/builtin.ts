@@ -24,8 +24,14 @@ description: 在 E2B 雲端沙盒（完整 Linux + Python/JS/Bash，可上網、
 完整端點與回應格式見 \`references/api.md\`（英文，可用 skill_load 指定 path 讀取）。
 
 ## 前置條件（請使用者在「設定 → 密鑰」完成）
-- 新增密鑰 \`E2B_API_KEY\`（E2B Console → API Keys 取得），允許網域填 \`api.e2b.app\`（只有建立／刪除沙盒會用到 API Key）。
-- 若系統提示的「密鑰」段落沒有 E2B_API_KEY，先請使用者新增，不要猜測或要求使用者在對話中貼出金鑰。
+- 新增密鑰 \`E2B_API_KEY\`（E2B Console → API Keys 取得），允許網域填 \`api.e2b.app\`（只有建立／刪除沙盒會用到 API Key；
+  執行程式與上傳／下載檔案走 \`sandbox.e2b.app\`，用的是建立沙盒時拿到的 envdAccessToken，不需要密鑰）。
+- 判斷方式只看系統提示的「密鑰」段落：
+  - 列出 E2B_API_KEY 且寫「已設定，可以使用」並包含 api.e2b.app → 密鑰已就緒，直接照下面流程呼叫 http_request。你看不到真值是正常的，不要因此說「讀不到密鑰」。
+  - 列出 E2B_API_KEY 但「尚未設定允許網域」或允許網域不含 api.e2b.app → 請使用者到「設定 → 密鑰」編輯它，允許網域填 \`api.e2b.app\`（或 \`*.e2b.app\`；只填 \`e2b.app\` 不包含子網域）。
+  - 段落寫「目前無法使用 http_request」→ 照段落寫的原因與解法告訴使用者（例如唯讀（Plan）模式、專案停用了 http_request）。
+  - 完全沒有 E2B_API_KEY → 請使用者新增。不要猜測原因（例如「同步中」），也不要要求使用者在對話中貼出金鑰。
+- 密鑰不是環境變數：不要用 code_run 或 os.environ 讀取 E2B_API_KEY，也不要嘗試 E2B 的 Python SDK；一律用 http_request 搭配 \`{{secret:E2B_API_KEY}}\`。
 - 費用：免費 Hobby 方案是**一次性** 100 美元額度、不需信用卡；額度用完帳號會被停用（不會自動扣款）。沙盒按執行秒數計費，所以用完立刻刪除。
 
 ## 流程
@@ -145,7 +151,7 @@ description: 透過使用者自架的 Piston 或 Judge0 程式執行服務跑多
 `;
 
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
-  { name: "e2b-sandbox", version: 1, files: { [SKILL_MD]: E2B_SKILL_MD, "references/api.md": E2B_API_MD } },
+  { name: "e2b-sandbox", version: 2, files: { [SKILL_MD]: E2B_SKILL_MD, "references/api.md": E2B_API_MD } },
   { name: "self-hosted-runner", version: 1, files: { [SKILL_MD]: RUNNER_SKILL_MD } },
 ];
 

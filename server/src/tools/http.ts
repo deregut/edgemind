@@ -9,7 +9,7 @@
  */
 import { ToolDeferred, type Tool, type ToolContext } from "../agent/tools";
 import { assertPublicUrl, BlockedUrlError, checkUrlShape } from "./ssrf";
-import { hostAllowed, loadSecrets, makeRedactor, referencedNames, type LoadedSecret } from "../secrets";
+import { domainMismatchHint, hostAllowed, loadSecrets, makeRedactor, referencedNames, type LoadedSecret } from "../secrets";
 import { normalizePath } from "../storage/files";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -96,7 +96,7 @@ async function execute(args: any, ctx: ToolContext) {
   const names = referencedNames(haystack);
   const secrets = await loadSecrets(ctx.database, ctx.encKey, names);
   const missing = names.filter((n) => !secrets.has(n));
-  if (missing.length) throw new Error(`找不到密鑰：${missing.join("、")}（請到 設定 → 密鑰 新增）`);
+  if (missing.length) throw new Error(`找不到密鑰：${missing.join("、")}（名稱需完全相符、區分大小寫；請使用者到「設定 → 密鑰」新增，或改用系統提示「密鑰」段落列出的名稱）`);
   const used = [...secrets.values()];
   const redact = makeRedactor(used);
   const safe = (s: string) => redact(s);
@@ -115,8 +115,8 @@ async function execute(args: any, ctx: ToolContext) {
 
     const checkSecretsFor = (host: string) => {
       for (const s of used) {
-        if (!s.allowedDomains.length) throw new Error(`密鑰 ${s.name} 沒有設定允許網域，無法使用（設定 → 密鑰）`);
-        if (!hostAllowed(host, s.allowedDomains)) throw new Error(`密鑰 ${s.name} 不允許送往 ${host}（允許：${s.allowedDomains.join("、")}）`);
+        if (!s.allowedDomains.length) throw new Error(`密鑰 ${s.name} 沒有設定允許網域，無法使用（請使用者到「設定 → 密鑰」編輯 ${s.name}，在允許網域填入 ${host}）`);
+        if (!hostAllowed(host, s.allowedDomains)) throw new Error(`密鑰 ${s.name} 不允許送往 ${host}（允許：${s.allowedDomains.join("、")}${domainMismatchHint(host, s.allowedDomains)}）`);
       }
     };
     checkSecretsFor(url.hostname);

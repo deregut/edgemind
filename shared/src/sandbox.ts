@@ -58,3 +58,32 @@ export const CODE_OUTPUT_CAP = 20_000;
 /** Python runs in the browser (the run is paused meanwhile), so it may take longer; package loading is not counted. */
 export const PYTHON_DEFAULT_TIMEOUT_SEC = 30;
 export const PYTHON_MAX_TIMEOUT_SEC = 120;
+
+/**
+ * Parse what a user typed as a secret's allowed domains (shared by the server and the settings UI).
+ * Accepts whitespace / comma / 、/ ，/ ；/ ; separated entries and forgives URL decoration: `https://api.e2b.app/`,
+ * `api.e2b.app/v2`, `api.e2b.app:443`, `API.E2B.APP.` all become `api.e2b.app`. `*.example.com` covers every
+ * subdomain (not the apex). Returns the normalized, deduped hostnames and a 正體中文 error per rejected entry.
+ */
+export function parseAllowedDomains(input: string | readonly unknown[]): { domains: string[]; errors: string[] } {
+  const list = typeof input === "string" ? input.split(/[\s,，、；;]+/) : [...input];
+  const out = new Set<string>();
+  const errors: string[] = [];
+  for (const raw of list) {
+    let d = String(raw ?? "").trim().toLowerCase();
+    if (!d) continue;
+    d = d.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^[^/@]*@/, "").replace(/[/?#].*$/, "").replace(/:\d*$/, "").replace(/\.+$/, "");
+    const wildcard = d.startsWith("*.");
+    const host = wildcard ? d.slice(2) : d;
+    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(host)) {
+      errors.push(`無效的網域：${String(raw).trim()}（請填主機名稱，例如 api.e2b.app 或 *.example.com）`);
+      continue;
+    }
+    if (wildcard && !host.includes(".")) {
+      errors.push(`萬用字元網域太寬：${String(raw).trim()}（至少要像 *.example.com）`);
+      continue;
+    }
+    out.add(wildcard ? `*.${host}` : host);
+  }
+  return { domains: [...out], errors };
+}

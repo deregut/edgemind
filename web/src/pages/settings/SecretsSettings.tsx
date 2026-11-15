@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import type { SecretDTO } from "@edgemind/shared";
+import { parseAllowedDomains, type SecretDTO } from "@edgemind/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -90,10 +90,18 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
     setDescription(editing?.description ?? "");
   }, [open, editing]);
 
+  const parsed = parseAllowedDomains(domains);
+  // Show what will be stored when normalization changed what was typed (https://, trailing slash, path, case…).
+  const rewritten = domains.split(/[\s,，、；;]+/).filter(Boolean).some((d) => !parsed.domains.includes(d));
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (parsed.errors.length) {
+      toast.error(parsed.errors.join("；"));
+      return;
+    }
     setBusy(true);
-    const allowedDomains = domains.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean);
+    const allowedDomains = parsed.domains;
     try {
       if (editing) await api(`/secrets/${editing.id}`, { method: "PATCH", body: { name, allowedDomains, description, ...(value ? { value } : {}) } });
       else await api("/secrets", { method: "POST", body: { name, value, allowedDomains, description } });
@@ -127,7 +135,17 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
             <Label htmlFor="secret-domains">允許網域</Label>
             <textarea id="secret-domains" value={domains} onChange={(e) => setDomains(e.target.value)} rows={3} placeholder={"api.e2b.app\n*.example.com"}
               className="w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm" />
-            <p className="text-xs text-muted-foreground">每行一個主機名稱；<code>*.example.com</code> 代表所有子網域（不含 example.com 本身）。沒有設定時此密鑰無法使用。</p>
+            <p className="text-xs text-muted-foreground">
+              每行一個主機名稱（貼上網址也可以，會自動去掉 <code>https://</code> 與路徑）；<code>*.example.com</code> 代表所有子網域（不含 example.com 本身），
+              <code>example.com</code> 則只比對它本身、不含子網域。沒有設定時此密鑰無法使用。
+            </p>
+            {parsed.errors.map((err) => <p key={err} className="text-xs text-destructive">{err}</p>)}
+            {!parsed.errors.length && rewritten && parsed.domains.length > 0 && (
+              <p className="text-xs text-muted-foreground">將儲存為：<span className="font-mono">{parsed.domains.join("、")}</span></p>
+            )}
+            {!parsed.errors.length && !parsed.domains.length && name.trim() && (
+              <p className="text-xs text-amber-600 dark:text-amber-500">尚未填寫允許網域：儲存後模型會看到此密鑰，但無法使用。</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="secret-desc">說明（選填，模型看得到）</Label>
@@ -135,7 +153,7 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>取消</Button>
-            <Button type="submit" disabled={busy}>{busy && <Loader2 className="animate-spin" />} 儲存</Button>
+            <Button type="submit" disabled={busy || parsed.errors.length > 0}>{busy && <Loader2 className="animate-spin" />} 儲存</Button>
           </DialogFooter>
         </form>
       </DialogContent>
