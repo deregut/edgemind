@@ -150,6 +150,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
    | Publish directory | `web/dist` |
    | Functions directory | `netlify/functions` |
 
+   > ⚠️ EdgeMind 使用 npm workspaces，Netlify 可能把它判斷成 monorepo，並自動把 **Base directory** 或 **Package directory** 設成 `server`（或其他子套件）。請確認這兩個欄位都是**空白**：建置必須在儲存庫根目錄執行，根目錄的 `npm run build` 才會一次處理 server、web 與 Functions。
+
 3. 先**不要**按 Deploy，展開 **Environment variables**（或建立後到 **Project configuration → Environment variables**）新增下列變數：
 
    | 變數 | 範例／說明 |
@@ -244,6 +246,7 @@ DELETE FROM users;
 
 | 症狀 | 可能原因 |
 |---|---|
+| 建置失敗：`Missing script: "build"`，位置是 `/opt/build/repo/server` | Netlify 把 Base directory 或 Package directory 自動設成 `server`。到 **Project configuration → Build & deploy → Build settings** 把兩者清空，再 **Clear cache and deploy site** |
 | 打開網站看到「環境變數」錯誤頁 | 變數缺漏或格式錯誤（例如 `ENCRYPTION_KEY` 不是 32 位元組）；修正後重新部署 |
 | `/api/*` 回傳網頁 HTML | `api` 函式的路徑沒有生效，見 [verification-checklist.md](verification-checklist.md) 第 1 節 |
 | 上傳卡在 0% 或出現網路錯誤 | bucket CORS 沒有包含目前網站來源，或沒有公開 `ETag` |
