@@ -228,4 +228,4 @@ docs/                部署與設定文件
 | [docs/configuration.md](docs/configuration.md) | 網頁介面中每一項設定的說明 |
 | [docs/verification-checklist.md](docs/verification-checklist.md) | 部署後要逐項確認的檢查清單 |
 
-授權條款尚未決定，目前未附 LICENSE。
+本專案採用 [MIT 授權條款](LICENSE)。

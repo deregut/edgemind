@@ -46,4 +46,4 @@ npm run build                 # web + Netlify/Cloudflare function bundles + smok
 
 ## License
 
-Not chosen yet; no LICENSE file is included.
+Released under the [MIT License](LICENSE).
