@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Archive, BarChart3, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, Download, BarChart3, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import type { ConversationDTO, SpendStatus } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConfirmDialog, PromptDialog } from "@/components/PromptDialog";
 import { api } from "@/lib/api";
+import { useInstallPrompt } from "@/lib/pwa";
 import { useWorkspace } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +114,7 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
         <Button asChild variant="ghost" size="sm" className="w-full justify-start">
           <Link to="/usage" onClick={onNavigate}><BarChart3 /> 用量</Link>
         </Button>
+        <InstallButton />
         <SpendNotice onNavigate={onNavigate} />
       </div>
       <div className="flex items-center gap-1 pt-1">
@@ -235,5 +237,16 @@ function SpendNotice({ onNavigate }: { onNavigate?: () => void }) {
     <Link to="/usage" onClick={onNavigate} className={`mx-2 mt-1 flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${blocked ? "border-destructive text-destructive" : "border-amber-500 text-amber-700 dark:text-amber-400"}`}>
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span>{s.message}</span>
     </Link>
+  );
+}
+
+/** 「安裝 App」: shown only while the browser offers PWA installation. */
+function InstallButton() {
+  const { canInstall, install } = useInstallPrompt();
+  if (!canInstall) return null;
+  return (
+    <Button variant="ghost" size="sm" className="w-full justify-start" onClick={install}>
+      <Download /> 安裝 App
+    </Button>
   );
 }

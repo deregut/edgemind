@@ -4,7 +4,10 @@ import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/lib/theme";
 import { App } from "./App";
+import { initPwa } from "@/lib/pwa";
 import "./index.css";
+
+initPwa();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
