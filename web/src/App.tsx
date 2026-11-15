@@ -10,6 +10,7 @@ import { ChatPage } from "@/pages/ChatPage";
 
 const ProjectPage = lazy(() => import("@/pages/ProjectPage").then((m) => ({ default: m.ProjectPage })));
 const SchedulesPage = lazy(() => import("@/pages/SchedulesPage").then((m) => ({ default: m.SchedulesPage })));
+const UsagePage = lazy(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const Spin = () => <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
@@ -50,6 +51,7 @@ export function App() {
         <Route path="c/:id" element={<ChatPage />} />
         <Route path="p/:id" element={<Suspense fallback={<Spin />}><ProjectPage /></Suspense>} />
         <Route path="schedules" element={<Suspense fallback={<Spin />}><SchedulesPage /></Suspense>} />
+        <Route path="usage" element={<Suspense fallback={<Spin />}><UsagePage /></Suspense>} />
         <Route path="settings" element={<Suspense fallback={<Spin />}><SettingsPage /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

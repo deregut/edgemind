@@ -18,6 +18,7 @@ import { mountMcp } from "./routes/mcp";
 import { mountMemory } from "./routes/memory";
 import { mountSecrets } from "./routes/secrets";
 import { mountSchedules } from "./routes/schedules";
+import { mountUsage } from "./routes/usage";
 
 /** Migrations run at most once per isolate per database URL. */
 const migrated = new Map<string, Promise<void>>();
@@ -103,6 +104,7 @@ export function createApp(deps: AppDeps) {
   mountMemory(app, deps);
   mountSecrets(app);
   mountSchedules(app, chatApi);
+  mountUsage(app);
 
   app.notFound((c) => c.json({ error: "not_found" }, 404));
   return app;

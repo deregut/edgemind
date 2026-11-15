@@ -90,7 +90,7 @@ export async function handleNetlifyCron(_req: Request, context: NetlifyContext):
   envObj ??= readEnv();
   const site = (typeof Netlify !== "undefined" ? Netlify.env.get("URL") : undefined) ?? process.env.URL ?? process.env.DEPLOY_PRIME_URL;
   if (!site) return new Response("missing URL", { status: 500 });
-  const secret = String(envObj.JWT_SECRET ?? "");
+  const secret = String(envObj.JWT_SECRET || "unset"); // unset → the app answers 503 env_invalid before checking the token
   const inner = new Request(`${site.replace(/\/$/, "")}/api/cron/tick`, { method: "POST", headers: { "x-edgemind-cron": await cronInternalToken(secret) } });
   const waitUntil = context?.waitUntil?.bind(context) ?? ((p: Promise<unknown>) => void p.catch(() => {}));
   const res = await app.fetch(inner, envObj, { waitUntil, passThroughOnException() {}, props: {} } as never);

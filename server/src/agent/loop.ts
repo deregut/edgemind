@@ -17,7 +17,8 @@ import type { AgentEvent, ChatRequest, PendingApprovalDTO, PermissionMode, RunSt
 import { TERMINAL_RUN_STATUSES } from "@edgemind/shared";
 import type { Database } from "../db/client";
 import { auditLogs, projects, runSteps, toolApprovals, usageLogs } from "../db/schema";
-import { costOf, getFullModeCaps, getModelPrices } from "../lib/settings";
+import { getFullModeCaps, getModelPrices } from "../lib/settings";
+import { recordLlmUsage, spendStatus } from "../usage";
 import { AssistantBuilder, resolveModel, streamChat, type Fetch, type ResolvedModel, type RetryOptions } from "../llm";
 import { assembleContext, type ContextHooks } from "./context";
 import { buildMcpTools, mcpRisks } from "../mcp/service";
@@ -530,6 +531,21 @@ async function segmentBody(
       }
     }
 
+    // ---------- spend caps (用量): checked before every model call ----------
+    {
+      const spend = await spendStatus(db);
+      if (spend.daily === "blocked" || spend.monthly === "blocked") {
+        await appendStep(db, runId, "error", { message: spend.message, code: "spend_cap" });
+        emit({ type: "error", error: { message: spend.message!, code: "spend_cap" } });
+        return finalize("failed", "spend_cap", spend.message!);
+      }
+      if (spend.message && !cp.spendWarned) {
+        cp.spendWarned = true;
+        await appendStep(db, runId, "spend_warning", { message: spend.message });
+        await saveCp();
+      }
+    }
+
     // ---------- 3. model step ----------
     let ctx = await assembleContext(db, conversationId, cp.leafId, hooks);
     const tools = registry.defs((t) => toolAvailable(t) && (mode === "plan" ? t.risk === "read" : true));
@@ -585,11 +601,7 @@ async function segmentBody(
 
     if (b.usage) {
       lastInputTokens = b.usage.inputTokens ?? 0;
-      await db.db.insert(usageLogs).values({
-        providerId: model.providerId, model: model.model, runId, kind: "chat",
-        inputTokens: b.usage.inputTokens, outputTokens: b.usage.outputTokens, cachedTokens: b.usage.cachedInputTokens ?? null,
-        costUsd: costOf(prices, model.modelRowId, b.usage.inputTokens, b.usage.outputTokens),
-      });
+      await recordLlmUsage(db, { providerId: model.providerId, model: model.model, modelRowId: model.modelRowId, runId, conversationId, usage: b.usage }, prices);
     }
 
     if (b.error) {

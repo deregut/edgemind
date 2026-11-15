@@ -11,6 +11,7 @@
  *   GET    /api/tools                             registry (name, description, risk)
  *   GET/PUT /api/settings/agent                   default model, max steps, 全部權限 caps, model prices
  */
+import { recordLlmUsage, spendStatus } from "../usage";
 import type { Hono } from "hono";
 import { buildMcpTools } from "../mcp/service";
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
@@ -258,6 +259,8 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
     if (!isUuid(modelId)) modelId = (await getSetting<string>(database, "default_model_id")) ?? null;
     if (!isUuid(modelId)) return c.json({ error: "no_model", message: "沒有可用的模型" }, 400);
     const model = await resolveModel(database, c.get("encKey"), modelId, deps.fetch);
+    const spend = await spendStatus(database);
+    if (spend.daily === "blocked" || spend.monthly === "blocked") return c.json({ error: "spend_cap", message: spend.message }, 429);
     const b = await collect(
       streamChat(model.cfg, {
         model: model.model,
@@ -266,6 +269,7 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
         maxTokens: 60,
       }),
     );
+    if (b.usage) await recordLlmUsage(database, { providerId: model.providerId, model: model.model, modelRowId: model.modelRowId, conversationId: id, usage: b.usage }).catch(() => {});
     const raw = b.message().parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("").trim();
     const title = raw.split("\n").map((l) => l.trim()).find(Boolean)?.replace(/^["'「『《#*\s]+|["'」』》*。.\s]+$/g, "").slice(0, 60);
     if (b.error || !title) return c.json({ error: "title_failed", message: b.error?.message ?? "模型沒有回傳標題" }, 502);
@@ -431,9 +435,10 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
       const prices: AgentSettingsDTO["modelPrices"] = {};
       for (const [k, v] of Object.entries(body.modelPrices as Record<string, any>)) {
         if (!isUuid(k)) continue;
-        const input = Number(v?.input), output = Number(v?.output);
-        if (!(input >= 0) || !(output >= 0)) throw new BadInput("價格必須是非負數");
-        if (input || output) prices[k] = { input, output };
+        const input = Number(v?.input ?? 0), output = Number(v?.output ?? 0);
+        const cached = v?.cachedInput === undefined || v?.cachedInput === null || v?.cachedInput === "" ? undefined : Number(v.cachedInput);
+        if (!(input >= 0) || !(output >= 0) || (cached !== undefined && !(cached >= 0))) throw new BadInput("價格必須是非負數");
+        if (input || output || cached) prices[k] = { input, output, ...(cached !== undefined ? { cachedInput: cached } : {}) };
       }
       await setSetting(database, "model_prices", prices);
     }

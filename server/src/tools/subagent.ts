@@ -6,7 +6,7 @@
 import { AssistantBuilder, streamChat } from "../llm";
 import type { Message, Part } from "@edgemind/shared";
 import { ToolDeferred, type Tool } from "../agent/tools";
-import { usageLogs } from "../db/schema";
+import { assertSpendAllowed, recordLlmUsage } from "../usage";
 
 const MAX_STEPS_CAP = 8;
 const MIN_MS = 15_000;
@@ -40,6 +40,7 @@ export const subagentTool: Tool = {
       if (ctx.signal.aborted) throw new Error("已中止");
       if (ctx.deadline !== undefined && ctx.deadline - Date.now() < 5_000) throw new ToolDeferred();
       const last = step === maxSteps;
+      await assertSpendAllowed(ctx.database); // throws SpendCapError → tool error with the cap message
       const b = new AssistantBuilder();
       for await (const ev of streamChat(ctx.model.cfg, { model: ctx.model.model, system: SYSTEM, messages, tools: last ? [] : defs }, { signal: ctx.signal })) b.push(ev);
       if (b.error) {
@@ -47,10 +48,7 @@ export const subagentTool: Tool = {
         throw new Error(`子代理模型錯誤：${b.error.message}`);
       }
       if (b.usage) {
-        await ctx.database.db.insert(usageLogs).values({
-          providerId: ctx.model.providerId, model: ctx.model.model, runId: ctx.runId, kind: "chat",
-          inputTokens: b.usage.inputTokens, outputTokens: b.usage.outputTokens, cachedTokens: b.usage.cachedInputTokens ?? null,
-        });
+        await recordLlmUsage(ctx.database, { providerId: ctx.model.providerId, model: ctx.model.model, modelRowId: ctx.model.modelRowId, runId: ctx.runId, conversationId: ctx.conversationId, usage: b.usage });
       }
       const msg = b.message();
       messages.push(msg);

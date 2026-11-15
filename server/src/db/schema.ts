@@ -401,9 +401,14 @@ export const usageLogs = pgTable("usage_logs", {
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
   cachedTokens: integer("cached_tokens"),
+  reasoningTokens: integer("reasoning_tokens"),
+  /** models row (price lookup / breakdown); null for non-LLM usage. */
+  modelId: uuid("model_id"),
+  /** Attribution for usage outside a run (auto titles, memory extraction); runs are joined via run_id. */
+  conversationId: uuid("conversation_id"),
   costUsd: real("cost_usd"),
   createdAt: createdAt(),
-}, (t) => [index("usage_logs_time_idx").on(t.createdAt)]);
+}, (t) => [index("usage_logs_time_idx").on(t.createdAt), index("usage_logs_run_idx").on(t.runId)]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: id(),

@@ -165,5 +165,15 @@ export const MIGRATIONS: { tag: string; hash: string; statements: string[] }[] =
    "CREATE INDEX \"scheduled_task_runs_task_idx\" ON \"scheduled_task_runs\" USING btree (\"task_id\",\"created_at\");",
    "CREATE INDEX \"scheduled_tasks_due_idx\" ON \"scheduled_tasks\" USING btree (\"enabled\",\"next_run_at\");"
   ]
+ },
+ {
+  "tag": "0009_military_korg",
+  "hash": "9665722c2a64976882b9319d0a21310029785bbe37b592ef9a342a2998a753c4",
+  "statements": [
+   "ALTER TABLE \"usage_logs\" ADD COLUMN \"reasoning_tokens\" integer;",
+   "ALTER TABLE \"usage_logs\" ADD COLUMN \"model_id\" uuid;",
+   "ALTER TABLE \"usage_logs\" ADD COLUMN \"conversation_id\" uuid;",
+   "CREATE INDEX \"usage_logs_run_idx\" ON \"usage_logs\" USING btree (\"run_id\");"
+  ]
  }
 ];

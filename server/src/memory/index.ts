@@ -8,6 +8,7 @@
  *    into conversations.summary (summaryUpTo = last covered message); assembleContext then sends the summary
  *    instead of those turns. The cut always lands before a user message so tool calls stay paired.
  */
+import { recordLlmUsage, spendStatus } from "../usage";
 import { eq } from "drizzle-orm";
 import { DEFAULT_MEMORY_SETTINGS, type MemorySettingsDTO, type Message, type Part } from "@edgemind/shared";
 import type { Database } from "../db/client";
@@ -264,6 +265,8 @@ export async function extractMemories(database: Database, encKey: Uint8Array, fe
   const assistantText = textOf(exchange, "assistant");
   const model = await helperModel(database, encKey, fetchFn, run.modelId);
   if (!model) return { added: 0, updated: 0, skipped: "no_model" };
+  const spend = await spendStatus(database);
+  if (spend.daily === "blocked" || spend.monthly === "blocked") return { added: 0, updated: 0, skipped: "spend_cap" };
 
   const ctx: MemorySearchCtx = { database, encKey, fetch: fetchFn, conversationId: conv.id, projectId: conv.projectId, runId };
   const related = await searchMemories(ctx, userText.slice(0, 1000), 8).catch(() => ({ results: [] as { id: string; scope: string; content: string }[] }));
@@ -289,6 +292,7 @@ export async function extractMemories(database: Database, encKey: Uint8Array, fe
       maxTokens: 600,
     }),
   );
+  if (b.usage) await recordLlmUsage(database, { providerId: model.providerId, model: model.model, modelRowId: model.modelRowId, runId, conversationId: conv.id, usage: b.usage }).catch(() => {});
   if (b.error) return { added: 0, updated: 0, skipped: `model_error: ${b.error.message}` };
   const ops = parseOps(b.message().parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join(""));
   const known = new Set(related.results.map((m) => m.id));

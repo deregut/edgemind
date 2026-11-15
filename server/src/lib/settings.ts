@@ -42,8 +42,4 @@ export async function getModelPrices(database: Database): Promise<ModelPrices> {
   return v && typeof v === "object" ? v : {};
 }
 
-export function costOf(prices: ModelPrices, modelRowId: string, inputTokens: number, outputTokens: number): number | null {
-  const p = prices[modelRowId];
-  if (!p) return null;
-  return (inputTokens * (p.input || 0) + outputTokens * (p.output || 0)) / 1_000_000;
-}
+export { costOf } from "../usage";

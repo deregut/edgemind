@@ -27,6 +27,8 @@ export interface Checkpoint {
   pending?: PendingTools;
   options?: RunOptions;
   finishReason?: string;
+  /** Spend-cap warning (80 %) already recorded for this run. */
+  spendWarned?: boolean;
 }
 
 /** A segment that has not heartbeated for this long is considered dead and its run can be re-claimed. */

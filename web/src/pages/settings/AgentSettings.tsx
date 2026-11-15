@@ -23,9 +23,12 @@ export function AgentSettingsSection() {
   }, []);
   if (!s) return null;
 
-  const price = (id: string, k: "input" | "output") => s.modelPrices[id]?.[k] ?? "";
-  const setPrice = (id: string, k: "input" | "output", v: string) =>
-    setS({ ...s, modelPrices: { ...s.modelPrices, [id]: { input: s.modelPrices[id]?.input ?? 0, output: s.modelPrices[id]?.output ?? 0, [k]: Number(v) || 0 } } });
+  const price = (id: string, k: "input" | "output" | "cachedInput") => s.modelPrices[id]?.[k] ?? "";
+  const setPrice = (id: string, k: "input" | "output" | "cachedInput", v: string) => {
+    const cur = s.modelPrices[id] ?? { input: 0, output: 0 };
+    const next = { ...cur, [k]: k === "cachedInput" && v === "" ? undefined : Number(v) || 0 };
+    setS({ ...s, modelPrices: { ...s.modelPrices, [id]: next } });
+  };
 
   async function save() {
     setBusy(true);
@@ -93,13 +96,14 @@ export function AgentSettingsSection() {
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>模型價格</CardTitle><CardDescription>每百萬 tokens 的美元價格，用來計算花費與花費上限；未填的模型不計費。</CardDescription></CardHeader>
+        <CardHeader><CardTitle>模型價格</CardTitle><CardDescription>每百萬 tokens 的美元價格（輸入／快取輸入／輸出），用來計算「用量」頁的花費與花費上限；快取輸入留空時以輸入價格計算，未填的模型不計費。</CardDescription></CardHeader>
         <CardContent className="space-y-2">
           {!ws.models.length && <p className="text-sm text-muted-foreground">尚未設定模型。</p>}
           {ws.models.map((m) => (
-            <div key={m.id} className="grid grid-cols-[1fr_7rem_7rem] items-center gap-2 text-sm">
+            <div key={m.id} className="grid grid-cols-[1fr_6rem_6rem_6rem] items-center gap-2 text-sm">
               <span className="truncate">{m.providerName} · {modelLabel(m)}</span>
               <Input type="number" min={0} step="0.01" placeholder="輸入" value={price(m.id, "input")} onChange={(e) => setPrice(m.id, "input", e.target.value)} />
+              <Input type="number" min={0} step="0.01" placeholder="快取輸入" value={price(m.id, "cachedInput")} onChange={(e) => setPrice(m.id, "cachedInput", e.target.value)} />
               <Input type="number" min={0} step="0.01" placeholder="輸出" value={price(m.id, "output")} onChange={(e) => setPrice(m.id, "output", e.target.value)} />
             </div>
           ))}

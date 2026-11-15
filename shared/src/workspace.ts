@@ -89,8 +89,8 @@ export interface AgentSettingsDTO {
   defaultModelId: string | null;
   maxSteps: number;
   fullModeCaps: FullModeCaps;
-  /** modelRowId → { input, output } USD per 1M tokens. */
-  modelPrices: Record<string, { input: number; output: number }>;
+  /** modelRowId → { input, output, cachedInput? } USD per 1M tokens (cachedInput defaults to input). */
+  modelPrices: Record<string, { input: number; output: number; cachedInput?: number }>;
   /** Model used for automatic titles (null = the conversation's model). */
   titleModelId: string | null;
 }

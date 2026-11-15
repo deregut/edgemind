@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { Archive, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, BarChart3, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import type { ConversationDTO } from "@edgemind/shared";
+import type { ConversationDTO, SpendStatus } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -110,6 +110,10 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
         <Button asChild variant="ghost" size="sm" className="w-full justify-start">
           <Link to="/schedules" onClick={onNavigate}><CalendarClock /> 排程</Link>
         </Button>
+        <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+          <Link to="/usage" onClick={onNavigate}><BarChart3 /> 用量</Link>
+        </Button>
+        <SpendNotice onNavigate={onNavigate} />
       </div>
       <div className="flex items-center gap-1 pt-1">
         <Button asChild variant="ghost" size="sm" className="flex-1 justify-start">
@@ -213,5 +217,23 @@ function ConversationItem({ c, active, onNavigate }: { c: ConversationDTO; activ
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Spend-cap warning (≥ warn ratio) or block, polled every 5 minutes. */
+function SpendNotice({ onNavigate }: { onNavigate?: () => void }) {
+  const [s, setS] = useState<SpendStatus | null>(null);
+  useEffect(() => {
+    const load = () => api<SpendStatus>("/usage/status").then(setS).catch(() => {});
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!s?.message) return null;
+  const blocked = s.daily === "blocked" || s.monthly === "blocked";
+  return (
+    <Link to="/usage" onClick={onNavigate} className={`mx-2 mt-1 flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${blocked ? "border-destructive text-destructive" : "border-amber-500 text-amber-700 dark:text-amber-400"}`}>
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span>{s.message}</span>
+    </Link>
   );
 }
