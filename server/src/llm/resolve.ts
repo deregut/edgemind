@@ -84,3 +84,21 @@ export async function resolveModel(database: Database, encKey: Uint8Array, model
     contextLength: row.m.contextLength,
   };
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `id` if it names a chat model that can be used right now (row exists, enabled, on an enabled LLM provider), else null.
+ * Model references kept in `settings` (default_model_id, title_model_id) have no foreign key: re-syncing a provider's
+ * model list, deleting a provider or disabling a model leaves them pointing at nothing, so always read them through this.
+ */
+export async function usableModelId(database: Database, id: unknown): Promise<string | null> {
+  if (typeof id !== "string" || !UUID_RE.test(id)) return null;
+  const [row] = await database.db
+    .select({ id: models.id })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id))
+    .where(and(eq(models.id, id), eq(models.enabled, true), eq(providers.enabled, true), eq(providers.type, "llm")))
+    .limit(1);
+  return row?.id ?? null;
+}

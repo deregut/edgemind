@@ -24,6 +24,11 @@ export interface ContextHooks {
   memoriesSection?(input: { conversationId: string; projectId: string | null; query: string }): Promise<string>;
 }
 
+export interface ContextOptions {
+  /** Why http_request is not usable in this run (plan mode, project tool list, deny rule); told to the model in # 密鑰. */
+  httpUnavailable?: string | null;
+}
+
 export type MessageRow = typeof messages.$inferSelect;
 
 /** Walk parent pointers from `leafId` to the root; returns root → leaf. */
@@ -50,7 +55,7 @@ export interface AssembledContext {
   compactedMessages?: number;
 }
 
-export async function assembleContext(database: Database, conversationId: string, leafId: string, hooks: ContextHooks = {}): Promise<AssembledContext> {
+export async function assembleContext(database: Database, conversationId: string, leafId: string, hooks: ContextHooks = {}, opts: ContextOptions = {}): Promise<AssembledContext> {
   const [conv] = await database.db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
   const projectId = conv?.projectId ?? null;
   const [sp] = await database.db.select().from(settings).where(eq(settings.key, "system_prompt")).limit(1);
@@ -79,7 +84,7 @@ export async function assembleContext(database: Database, conversationId: string
     : await defaultSkillsSection(database, projectId).catch(() => "");
   if (skills.trim()) sections.push(`# 可用的 Skills\n${skills.trim()}`);
 
-  const vault = await secretsSection(database).catch(() => "");
+  const vault = await secretsSection(database, { httpUnavailable: opts.httpUnavailable }).catch(() => "");
   if (vault) sections.push(`# 密鑰\n${vault}`);
 
   const lastUser = [...history].reverse().find((m) => m.role === "user");

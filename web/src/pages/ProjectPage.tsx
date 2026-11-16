@@ -158,6 +158,7 @@ function ProjectTools({ p, onSaved }: { p: ProjectDTO; onSaved(p: ProjectDTO): v
   const ws = useWorkspace();
   const all = p.enabledTools === null;
   const enabled = new Set(p.enabledTools ?? ws.tools.map((t) => t.name));
+  const httpOff = !all && ws.tools.some((t) => t.name === "http_request") && !enabled.has("http_request");
 
   async function save(enabledTools: string[] | null) {
     try {
@@ -176,9 +177,16 @@ function ProjectTools({ p, onSaved }: { p: ProjectDTO; onSaved(p: ProjectDTO): v
       </CardHeader>
       <CardContent className="space-y-3">
         <label className="flex items-center gap-3 text-sm font-medium">
-          <Switch checked={all} onCheckedChange={(v) => save(v ? null : ws.tools.map((t) => t.name))} />
+          {/* Turning "all" off snapshots the current tool list: never save it before the list has loaded (would disable every tool). */}
+          <Switch checked={all} disabled={!ws.tools.length} onCheckedChange={(v) => save(v ? null : ws.tools.map((t) => t.name))} />
           啟用全部工具（包含之後新增的工具）
         </label>
+        {!all && <p className="text-xs text-muted-foreground">只啟用勾選的工具：之後新增的工具不會自動啟用。</p>}
+        {httpOff && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+            http_request 未啟用：這個專案的對話無法使用「設定 → 密鑰」中的密鑰（例如 e2b-sandbox、self-hosted-runner Skill）。需要時請勾選 http_request。
+          </p>
+        )}
         <div className="divide-y rounded-md border">
           {ws.tools.map((t) => (
             <label key={t.name} className="flex items-start gap-3 p-3 text-sm">

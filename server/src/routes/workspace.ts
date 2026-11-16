@@ -25,7 +25,7 @@ import { DEFAULT_FULL_CAPS, DEFAULT_MAX_STEPS, getSetting, normalizeCaps, setSet
 import { isPermissionMode } from "../agent/permissions";
 import { builtinRegistry } from "../agent/tools";
 import { loadBranch } from "../agent/context";
-import { collect, resolveModel, streamChat } from "../llm";
+import { collect, resolveModel, streamChat, usableModelId } from "../llm";
 import { resultToString } from "../llm/types";
 import { fileStore } from "./files";
 
@@ -255,9 +255,12 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
     const userText = textOf("user");
     if (!userText.trim()) throw new BadInput("對話沒有內容可以命名");
     const assistantText = textOf("assistant");
-    let modelId = (await getSetting<string>(database, "title_model_id")) ?? conv.modelId ?? branch.find((m) => m.modelId)?.modelId ?? null;
-    if (!isUuid(modelId)) modelId = (await getSetting<string>(database, "default_model_id")) ?? null;
-    if (!isUuid(modelId)) return c.json({ error: "no_model", message: "沒有可用的模型" }, 400);
+    let modelId: string | null = null;
+    for (const cand of [await getSetting(database, "title_model_id"), conv.modelId, branch.find((m) => m.modelId)?.modelId, await getSetting(database, "default_model_id")]) {
+      modelId = await usableModelId(database, cand);
+      if (modelId) break;
+    }
+    if (!modelId) return c.json({ error: "no_model", message: "沒有可用的模型" }, 400);
     const model = await resolveModel(database, c.get("encKey"), modelId, deps.fetch);
     const spend = await spendStatus(database);
     if (spend.daily === "blocked" || spend.monthly === "blocked") return c.json({ error: "spend_cap", message: spend.message }, 429);
@@ -410,11 +413,12 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
   app.get("/settings/agent", async (c) => {
     const database = c.get("database");
     const out: AgentSettingsDTO = {
-      defaultModelId: (await getSetting<string>(database, "default_model_id")) ?? null,
+      // stale references (model removed / disabled since) read as "not set", so pickers and new chats never use them
+      defaultModelId: await usableModelId(database, await getSetting(database, "default_model_id")),
       maxSteps: (await getSetting<number>(database, "max_steps")) ?? DEFAULT_MAX_STEPS,
       fullModeCaps: normalizeCaps((await getSetting(database, "full_mode_caps")) ?? DEFAULT_FULL_CAPS),
       modelPrices: (await getSetting(database, "model_prices")) ?? {},
-      titleModelId: (await getSetting<string>(database, "title_model_id")) ?? null,
+      titleModelId: await usableModelId(database, await getSetting(database, "title_model_id")),
     };
     return c.json(out);
   });

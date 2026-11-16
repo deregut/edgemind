@@ -4,7 +4,7 @@
  * only ever see names, masked previews and allowed domains.
  */
 import { asc, eq, inArray } from "drizzle-orm";
-import type { SecretDTO } from "../../../shared/src/index";
+import { parseAllowedDomains, type SecretDTO } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { secrets } from "../db/schema";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/crypto";
@@ -26,24 +26,17 @@ export function toSecretDTO(r: SecretRow): SecretDTO {
   };
 }
 
-/** Hostname patterns: `api.example.com`, `*.example.com` (any subdomain depth, not the apex). Lowercased, deduped. */
+/**
+ * Hostname patterns: `api.example.com`, `*.example.com` (any subdomain depth, not the apex). Lowercased, deduped.
+ * URL decoration a user may type (`https://api.e2b.app/`, `api.e2b.app:443`) is stripped; anything else is rejected.
+ */
 export function normalizeDomains(v: unknown): string[] {
   if (v === undefined || v === null) return [];
-  const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(/[\s,]+/) : null;
-  if (!list) throw new BadInput("allowedDomains 必須是網域陣列");
-  const out = new Set<string>();
-  for (const raw of list) {
-    let d = String(raw ?? "").trim().toLowerCase();
-    if (!d) continue;
-    d = d.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, "").replace(/\.$/, "");
-    const wildcard = d.startsWith("*.");
-    const host = wildcard ? d.slice(2) : d;
-    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(host)) throw new BadInput(`無效的網域：${raw}`);
-    if (wildcard && !host.includes(".")) throw new BadInput(`萬用字元網域太寬：${raw}（至少要像 *.example.com）`);
-    out.add(wildcard ? `*.${host}` : host);
-  }
-  if (out.size > MAX_DOMAINS) throw new BadInput(`最多 ${MAX_DOMAINS} 個網域`);
-  return [...out];
+  if (!Array.isArray(v) && typeof v !== "string") throw new BadInput("allowedDomains 必須是網域陣列");
+  const { domains, errors } = parseAllowedDomains(v);
+  if (errors.length) throw new BadInput(errors.join("；"));
+  if (domains.length > MAX_DOMAINS) throw new BadInput(`最多 ${MAX_DOMAINS} 個網域`);
+  return domains;
 }
 
 export function hostAllowed(host: string, patterns: string[]): boolean {
@@ -129,12 +122,36 @@ export async function loadSecrets(database: Database, key: Uint8Array, names: st
   return out;
 }
 
-/** System-prompt section: available secret NAMES + allowed domains (never values). */
-export async function secretsSection(database: Database): Promise<string> {
+/** Hint appended when `host` is refused although a pattern looks like it was meant to cover it. */
+export function domainMismatchHint(host: string, patterns: string[]): string {
+  const h = host.toLowerCase();
+  const parent = patterns.find((p) => !p.startsWith("*.") && h.endsWith(`.${p}`));
+  return parent ? `；「${parent}」只比對這個主機本身，要涵蓋 ${host} 請在「設定 → 密鑰」改填 ${host} 或 *.${parent}` : "";
+}
+
+/**
+ * System-prompt section: the configured secret NAMES + allowed domains (never values), worded so the model knows
+ * they are ready to use and how. `httpUnavailable` (why http_request is not offered in this run, e.g. plan mode or a
+ * project tool list without it) is stated plainly so the model reports the real reason instead of guessing.
+ */
+export async function secretsSection(database: Database, opts: { httpUnavailable?: string | null } = {}): Promise<string> {
   const rows = await listSecrets(database);
   if (!rows.length) return "";
-  const lines = rows.slice(0, 100).map((r) => `- ${r.name}${r.allowedDomains?.length ? `（允許網域：${r.allowedDomains.join("、")}）` : "（未設定允許網域，無法使用）"}${r.description ? `：${r.description.slice(0, 200)}` : ""}`);
-  return `呼叫 http_request 時可在 url、headers、query、body 中寫 {{secret:名稱}}，伺服器端會替換成密鑰值（你看不到真值，回應中出現也會被遮蔽）；只能送往該密鑰允許的網域。\n${lines.join("\n")}`;
+  const lines = rows.slice(0, 100).map((r) => {
+    const desc = r.description ? `（${r.description.slice(0, 200)}）` : "";
+    return r.allowedDomains?.length
+      ? `- ${r.name}${desc}：已設定，可以使用；只能送往 ${r.allowedDomains.join("、")}`
+      : `- ${r.name}${desc}：值已存好，但尚未設定允許網域，所以目前無法使用。請使用者到「設定 → 密鑰」編輯 ${r.name}，在「允許網域」填入要呼叫的 API 主機（例如 api.example.com）。`;
+  });
+  const head = [
+    "使用者已在「設定 → 密鑰」設定下列密鑰（伺服器端加密保存，立即生效，不需要同步或重新整理）。",
+    "使用方式：呼叫 http_request 時在 url、headers、query 或 body 中寫 {{secret:名稱}}（例如標頭 \"X-API-Key\": \"{{secret:E2B_API_KEY}}\"），伺服器會在送出前代入真值。",
+    "你看不到真值（回應中出現也會被遮蔽），這是正常的，不代表密鑰讀不到；密鑰也不是環境變數，code_run 等其他工具讀不到，只能透過 http_request 使用。不要請使用者在對話中貼出密鑰值。",
+  ];
+  if (opts.httpUnavailable) {
+    head.push(`注意：本次對話目前無法使用 http_request，原因：${opts.httpUnavailable}。在這之前無法使用任何密鑰；請把這個原因與解決方法如實告訴使用者，不要說成密鑰未同步、讀不到或權限對應問題。`);
+  }
+  return `${head.join("\n")}\n${lines.join("\n")}`;
 }
 
 /** Replace every occurrence of the values (raw, URL-encoded, base64, JSON-escaped) with `[已遮蔽:NAME]`. */

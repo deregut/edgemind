@@ -18,7 +18,7 @@ import { BadInput } from "../lib/errors";
 import { getSetting, setSetting } from "../lib/settings";
 import { getMemorySettings, helperModel, maybeCompact, normalizeMemorySettings } from "../memory";
 import { embedFields, resolveEmbedder } from "../tools/memory";
-import { resolveModel } from "../llm";
+import { resolveModel, usableModelId } from "../llm";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
@@ -174,7 +174,11 @@ export function mountMemory(app: Hono<HonoEnv>, deps: AppDeps) {
     if (!conv?.activeLeafId) return c.json({ error: "not_found", message: "找不到對話或對話是空的" }, 404);
     const [lastModel] = await database.db.select({ m: messages.modelId }).from(messages)
       .where(and(eq(messages.conversationId, id), sql`${messages.modelId} IS NOT NULL`)).orderBy(desc(messages.createdAt)).limit(1);
-    const modelId = conv.modelId ?? lastModel?.m ?? (await getSetting<string>(database, "default_model_id")) ?? null;
+    let modelId: string | null = null;
+    for (const cand of [conv.modelId, lastModel?.m, await getSetting(database, "default_model_id")]) {
+      modelId = await usableModelId(database, cand);
+      if (modelId) break;
+    }
     const helper = await helperModel(database, c.get("encKey"), deps.fetch, modelId);
     if (!helper) throw new BadInput("沒有可用的模型來產生摘要");
     const model = modelId ? await resolveModel(database, c.get("encKey"), modelId, deps.fetch).catch(() => helper) : helper;
