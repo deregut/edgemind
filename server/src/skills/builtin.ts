@@ -37,6 +37,7 @@ description: 在 E2B 雲端沙盒（完整 Linux + Python/JS/Bash，可上網、
 ## 流程
 1. **建立沙盒**：\`POST https://api.e2b.app/v2/sandboxes\`，標頭 \`X-API-Key: {{secret:E2B_API_KEY}}\`，
    body \`{"templateID": "code-interpreter-v1", "timeout": 300}\`（timeout 是存活秒數，夠用就好）。
+   使用者若指定了自訂模板（在對話、專案指示或記憶中，例如 \`code-interpreter-node26\`），templateID 改用該名稱。
    回應（201）記下 \`sandboxID\`、\`envdAccessToken\`、\`trafficAccessToken\`（可能是 null）、\`domain\`。
 2. **執行程式碼**（code-interpreter，Jupyter 核心，狀態會保留在同一個沙盒）：
    \`POST https://sandbox.e2b.app/execute\`，標頭：
@@ -49,6 +50,17 @@ description: 在 E2B 雲端沙盒（完整 Linux + Python/JS/Bash，可上網、
 4. **下載沙盒檔案到專案**：\`GET https://sandbox.e2b.app/files?path=/home/user/out.png\`（Port 49983），用 \`saveResponseTo: "outputs/out.png"\`。
 5. **刪除沙盒（必做）**：\`DELETE https://api.e2b.app/sandboxes/<sandboxID>\`，標頭 \`X-API-Key: {{secret:E2B_API_KEY}}\`，成功為 204。
    即使中途出錯也要刪除；忘記時沙盒會在 timeout 秒後自動結束，但期間持續計費。
+
+## 需要新版 Node.js 時
+預設映像的 Node 版本較舊。需要較新的 Node／npm（例如跑 Vite、Next.js、新語法或要求 Node ≥ 20 的套件）時：
+1. 先用 bash 執行 \`node -v\` 看版本；已符合就直接用。
+2. 不符合時，在同一個沙盒用 bash 安裝到家目錄（約 10～30 秒，不需要 sudo；\`V\` 是主版本號，預設用目前 LTS 26）：
+   \`\`\`bash
+   V=26; D=$HOME/.node; mkdir -p $D; A=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); F=$(curl -fsSL https://nodejs.org/dist/latest-v$V.x/SHASUMS256.txt | grep -o "node-v[0-9.]*-linux-$A.tar.gz" | head -1); curl -fsSL https://nodejs.org/dist/latest-v$V.x/$F | tar -xz -C $D --strip-components=1 && export PATH=$D/bin:$PATH && node -v && npm -v
+   \`\`\`
+3. 之後每次 bash 呼叫都以 \`export PATH=$HOME/.node/bin:$PATH;\` 開頭，再跑 \`node\`、\`npm\`、\`npx\`。用 bash 執行 Node 程式（\`node app.js\`），
+   不要用 \`"language": "js"\`（那是沙盒內建的 JS 核心，不會用到新裝的 Node）。
+4. 常常需要新版 Node 時，建議使用者建一個自訂模板，省去每次安裝：做法見 \`references/node-template.md\`。
 
 ## 注意
 - 圖表不要讓 NDJSON 夾帶大張 base64 PNG（回應會被截斷）：在程式中 \`plt.savefig('/home/user/out.png')\`，再用步驟 4 下載。
@@ -108,6 +120,53 @@ Hobby: free, one-time $100 usage credit, no credit card, sessions up to 1 hour, 
 pricing page for current limits). When the credit is used up the account is blocked and API calls are rejected — nothing is charged automatically.
 `;
 
+const E2B_NODE_TEMPLATE_MD = `# 自訂 E2B 模板：預裝新版 Node.js
+
+建一次模板，之後建立沙盒時把 templateID 換成模板名稱，Node 就已經是新版，不必每次安裝。
+模板在 E2B 雲端建置，本機只需要 Node.js 18+，不需要 Docker。
+
+## 1. 準備（在你自己的電腦）
+\`\`\`bash
+mkdir e2b-node-template && cd e2b-node-template
+npm init -y && npm install e2b dotenv
+echo "E2B_API_KEY=e2b_你的金鑰" > .env
+\`\`\`
+
+## 2. 建立 build.mjs
+\`\`\`js
+import "dotenv/config";
+import { Template, defaultBuildLogger } from "e2b";
+
+const NODE_MAJOR = 26; // 想要的 Node 主版本
+
+const template = Template()
+  .fromTemplate("code-interpreter-v1") // 保留 Python／Jupyter 等原本功能
+  .runCmd(
+    [
+      \`F=$(curl -fsSL https://nodejs.org/dist/latest-v\${NODE_MAJOR}.x/SHASUMS256.txt | grep -o "node-v[0-9.]*-linux-x64.tar.gz" | head -1) && curl -fsSL https://nodejs.org/dist/latest-v\${NODE_MAJOR}.x/$F | tar -xz -C /usr/local --strip-components=1\`,
+      "node -v && npm -v",
+    ],
+    { user: "root" },
+  );
+
+await Template.build(template, \`code-interpreter-node\${NODE_MAJOR}\`, {
+  cpuCount: 2,
+  memoryMB: 2048,
+  onBuildLogs: defaultBuildLogger(),
+});
+\`\`\`
+
+## 3. 建置
+\`\`\`bash
+node build.mjs
+\`\`\`
+看到建置成功與 node 版本號即可（幾分鐘）。
+
+## 4. 在 EdgeMind 使用
+在專案指示或對話中寫明：「E2B 沙盒一律使用模板 code-interpreter-node26」。
+模型建立沙盒時就會用 \`{"templateID": "code-interpreter-node26", ...}\`，不需要編輯這個 Skill。
+`;
+
 const RUNNER_SKILL_MD = `---
 name: self-hosted-runner
 description: 透過使用者自架的 Piston 或 Judge0 程式執行服務跑多種語言（C/C++/Java/Go/Rust/Python…）的程式碼，取得 stdout/stderr/結束碼。使用者已自架並在密鑰設定 PISTON_URL 或 JUDGE0_URL 時使用。
@@ -151,7 +210,7 @@ description: 透過使用者自架的 Piston 或 Judge0 程式執行服務跑多
 `;
 
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
-  { name: "e2b-sandbox", version: 2, files: { [SKILL_MD]: E2B_SKILL_MD, "references/api.md": E2B_API_MD } },
+  { name: "e2b-sandbox", version: 3, files: { [SKILL_MD]: E2B_SKILL_MD, "references/api.md": E2B_API_MD, "references/node-template.md": E2B_NODE_TEMPLATE_MD } },
   { name: "self-hosted-runner", version: 1, files: { [SKILL_MD]: RUNNER_SKILL_MD } },
 ];
 
