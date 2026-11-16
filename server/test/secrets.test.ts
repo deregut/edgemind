@@ -298,7 +298,7 @@ describe("bundled skills", () => {
     expect(e2b.instructions).toContain("{{secret:E2B_API_KEY}}");
     expect(e2b.instructions).toContain("DELETE https://api.e2b.app/sandboxes/");
     expect(e2b.note).toContain("code_run");
-    expect(e2b.files.map((f: any) => f.path)).toEqual(["references/api.md"]);
+    expect(e2b.files.map((f: any) => f.path)).toEqual(["references/api.md", "references/node-template.md"]);
     expect(api.content).toContain("POST /execute");
     expect(runner.instructions).toContain("/api/v2/execute");
     expect(runner.instructions).toContain("/submissions?base64_encoded=false&wait=true");

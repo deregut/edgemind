@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
+import { eq } from "drizzle-orm";
+import { settings, skills } from "../src/db/schema";
+import { resetBuiltinSkillsMemo } from "../src/skills/builtin";
 import { parseSkillMd, parseYamlSubset, setFrontmatterFields } from "../src/skills/frontmatter";
 import { checkSkillMd, skillDirs, slugifySkillName } from "../src/skills/store";
 import { parseGithubUrl } from "../src/skills/github";
@@ -282,5 +285,58 @@ describe("skills in the agent loop", () => {
     expect(r.events.find((e) => e.type === "approval-required")).toBeTruthy();
     expect((await c.get(`/skills/${list[0].id}`)).body.files.map((f: any) => f.path)).not.toContain("x.md");
     await c.req("PUT", "/permissions/mode", { scope: "global", mode: "auto_edit" });
+  });
+});
+
+describe("bundled skill upgrades", () => {
+  const NODE_TEMPLATE = "references/node-template.md";
+  /** Make the installed e2b-sandbox look like a version-2 install (no node-template.md, seed state at 2). */
+  const downgradeToV2 = async (id: string) => {
+    const db = h.t.database.db;
+    const [row] = await db.select().from(skills).where(eq(skills.id, id));
+    await db.update(skills).set({ files: row.files.filter((f) => f.path !== NODE_TEMPLATE) }).where(eq(skills.id, id));
+    await db.update(settings).set({ value: { "e2b-sandbox": { version: 2 }, "self-hosted-runner": { version: 1 } } }).where(eq(settings.key, "builtin_skills"));
+    resetBuiltinSkillsMemo(h.t.database);
+  };
+  const e2b = async () => (await h.client().get("/skills")).body.find((s: any) => s.name === "e2b-sandbox");
+
+  beforeEach(async () => {
+    // earlier tests delete the bundled skills (remembered as removed): start from a fresh install
+    const db = h.t.database.db;
+    await db.delete(skills).where(eq(skills.name, "e2b-sandbox"));
+    await db.delete(settings).where(eq(settings.key, "builtin_skills"));
+    resetBuiltinSkillsMemo(h.t.database);
+  });
+
+  it("an untouched builtin e2b-sandbox at version 2 upgrades to version 3 and gains references/node-template.md", async () => {
+    const c = h.client();
+    const before = await e2b();
+    expect(before.source).toBe("builtin");
+    await downgradeToV2(before.id);
+    expect((await c.get(`/skills/${before.id}`)).body.files.map((f: any) => f.path)).not.toContain(NODE_TEMPLATE);
+
+    const after = await e2b();
+    expect(after.id).toBe(before.id);
+    expect(after.source).toBe("builtin");
+    expect(after.files.map((f: any) => f.path)).toContain(NODE_TEMPLATE);
+    const file = await c.get(`/skills/${after.id}/file?path=${NODE_TEMPLATE}`);
+    expect(file.status).toBe(200);
+    expect(String(file.body).length).toBeGreaterThan(0);
+    const [st] = await h.t.database.db.select().from(settings).where(eq(settings.key, "builtin_skills"));
+    expect((st.value as any)["e2b-sandbox"].version).toBe(3);
+  });
+
+  it("a user-edited e2b-sandbox at version 2 is left alone", async () => {
+    const c = h.client();
+    const s = await e2b();
+    const edited = await c.req("PUT", `/skills/${s.id}/file`, { path: "references/api.md", content: "# my own notes\n" });
+    expect(edited.body.source).toBe("editor");
+    await downgradeToV2(s.id);
+
+    const after = await e2b();
+    expect(after.id).toBe(s.id);
+    expect(after.source).toBe("editor");
+    expect(after.files.map((f: any) => f.path)).not.toContain(NODE_TEMPLATE);
+    expect((await c.get(`/skills/${s.id}/file?path=references/api.md`)).body).toBe("# my own notes\n");
   });
 });
