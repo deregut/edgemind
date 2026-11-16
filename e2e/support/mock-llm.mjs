@@ -1,5 +1,6 @@
 // Tiny OpenAI-compatible mock LLM (streaming chat completions) for the E2E tests.
 // Turn 1 (last message is from the user): a code_run python tool call (a plain 「收到。」 when it contains 純文字). After a tool result: a short text.
+// A first user message containing 密鑰測試 makes an http_request with {{secret:E2B_API_KEY}} (headers; plus a body when it also contains 本文).
 // The tool result that reached the model is kept per prompt (text of the first user message): GET /tool-result?prompt=…
 import http from "node:http";
 
@@ -46,6 +47,13 @@ http.createServer(async (req, res) => {
       chunk(res, { role: "assistant", content: "" });
       chunk(res, { content: "Python 已執行完畢。" });
       chunk(res, {}, "stop");
+    } else if (textOf(last).includes("密鑰測試")) {
+      const id = `call_${Date.now().toString(36)}`;
+      const args = { method: textOf(last).includes("本文") ? "POST" : "GET", url: "https://api.e2b.app/sandboxes", headers: { "X-API-Key": "{{secret:E2B_API_KEY}}" }, timeoutSec: 5 };
+      if (textOf(last).includes("本文")) args.body = { templateID: "base", timeout: 300 };
+      chunk(res, { role: "assistant", content: null, tool_calls: [{ index: 0, id, type: "function", function: { name: "http_request", arguments: "" } }] });
+      chunk(res, { tool_calls: [{ index: 0, function: { arguments: JSON.stringify(args) } }] });
+      chunk(res, {}, "tool_calls");
     } else {
       const id = `call_${Date.now().toString(36)}`;
       chunk(res, { role: "assistant", content: null, tool_calls: [{ index: 0, id, type: "function", function: { name: "code_run", arguments: "" } }] });

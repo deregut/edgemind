@@ -171,6 +171,19 @@ export function ChatPage() {
 
   useEffect(() => () => stopPolling(), []);
 
+  // Moved into / out of a project from the sidebar or the project page: follow it (breadcrumb, project defaults).
+  useEffect(() => {
+    if (!meta) return;
+    const c = ws.conversations.find((x) => x.id === meta.id);
+    if (c && c.projectId !== meta.projectId) setMeta((m) => (m && m.id === c.id ? { ...m, projectId: c.projectId } : m));
+  }, [ws.conversations, meta]);
+
+  // A new chat inside a project: its earlier conversations, newest first, to continue one instead.
+  const projectConvs = useMemo(
+    () => (project && !convId ? ws.conversations.filter((c) => c.projectId === project.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5) : []),
+    [project, convId, ws.conversations],
+  );
+
   // auto-scroll while streaming (unless the user scrolled up)
   useEffect(() => {
     if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: "end" });
@@ -599,8 +612,21 @@ export function ChatPage() {
             <div className="py-16 text-center">
               <h2 className="text-2xl font-semibold">{project ? project.name : "今天想做什麼？"}</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                {ws.models.length ? "輸入訊息開始對話；可附加圖片或檔案。" : <>尚未設定任何語言模型，請先到<Link to="/settings" className="text-primary underline">設定</Link>新增供應商與模型。</>}
+                {ws.models.length ? (project ? "在這個專案中開始新對話；可附加圖片或檔案。" : "輸入訊息開始對話；可附加圖片或檔案。") : <>尚未設定任何語言模型，請先到<Link to="/settings" className="text-primary underline">設定</Link>新增供應商與模型。</>}
               </p>
+              {projectConvs.length > 0 && (
+                <div className="mx-auto mt-6 max-w-md text-left" data-testid="project-recent">
+                  <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">或繼續這個專案的對話</div>
+                  <div className="divide-y rounded-lg border">
+                    {projectConvs.map((c) => (
+                      <Link key={c.id} to={`/c/${c.id}`} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent">
+                        <span className="truncate">{c.title || "未命名對話"}</span>
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">{new Date(c.updatedAt).toLocaleDateString("zh-TW")}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {turns.map((t, i) => (

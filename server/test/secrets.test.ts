@@ -37,6 +37,7 @@ beforeAll(async () => {
       // A misbehaving API that reflects the credential back (must be redacted before the model sees it).
       return Response.json({ youSent: headers.authorization, query: url.searchParams.get("k"), body: body ? JSON.parse(body) : null }, { headers: { "x-request-id": "r-1", "set-cookie": "a=b", "x-ratelimit-remaining": "9" } });
     }
+    if (url.pathname === "/empty") return new Response(null, { status: 204 });
     if (url.pathname === "/big") return new Response("z".repeat(50_000), { headers: { "content-type": "text/plain" } });
     if (url.pathname === "/redirect-out") return new Response(null, { status: 302, headers: { location: "https://other.example.org/steal" } });
     if (url.pathname === "/redirect-in") return new Response(null, { status: 302, headers: { location: "https://api.example.com/echo" } });
@@ -219,6 +220,56 @@ describe("http_request", () => {
     await h.client().post(`/runs/${runIdOf(r.events)}/stop`, {});
     const [row] = await h.t.database.db.select().from(toolApprovals).where(eq(toolApprovals.toolCallId, "p1"));
     expect(row.status).toBe("denied");
+  });
+});
+
+describe("secrets: 找不到密鑰 regressions", () => {
+  it("names are normalized like the settings UI (fullwidth, invisible chars, spaces) and bad ones are refused with the reason", async () => {
+    const c = h.client();
+    for (const s of (await c.get("/secrets")).body.secrets) await c.req("DELETE", `/secrets/${s.id}`);
+    const r1 = await c.post("/secrets", { name: " ＦＵＬＬ＿ＷＩＤＴＨ ", value: "abcd1234", allowedDomains: ["api.example.com"] });
+    expect(r1.status).toBe(201);
+    expect(r1.body.secret.name).toBe("FULL_WIDTH");
+    const r2 = await c.post("/secrets", { name: "ZERO\u200bWIDTH\ufeff", value: "abcd1234", allowedDomains: "https://api.example.com/" });
+    expect(r2.body.secret).toMatchObject({ name: "ZEROWIDTH", allowedDomains: ["api.example.com"] });
+    const bad = await c.post("/secrets", { name: "MY-KEY", value: "abcd1234" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toContain("「-」");
+    expect((await c.post("/secrets", { name: "MY KEY", value: "abcd1234" })).body.message).toContain("空白");
+    const dup = await c.post("/secrets", { name: "ＦＵＬＬ_WIDTH", value: "abcd1234" });
+    expect(dup.body.message).toContain("已有名為 FULL_WIDTH 的密鑰");
+    const list = await c.get("/secrets");
+    expect(list.headers.get("cache-control")).toBe("no-store");
+    expect(list.body.secrets.map((s: any) => s.name)).toEqual(["FULL_WIDTH", "ZEROWIDTH"]);
+    for (const s of list.body.secrets) await c.req("DELETE", `/secrets/${s.id}`);
+  });
+
+  it("http_request says when the vault is empty vs which names exist; an empty response body is explained", async () => {
+    const c = h.client();
+    for (const s of (await c.get("/secrets")).body.secrets) await c.req("DELETE", `/secrets/${s.id}`);
+    h.script = [callsReply([{ id: "m1", name: "http_request", args: { url: "https://api.example.com/x", headers: { "X-API-Key": "{{secret:E2B_API_KEY}}" } } }]), textReply("ok")];
+    await h.chat({ content: "空", permissionMode: "full" });
+    const [empty] = toolMsgs(h.llmBodies[1]);
+    expect(empty).toContain("找不到密鑰：E2B_API_KEY");
+    expect(empty).toContain("目前沒有任何已儲存的密鑰");
+
+    await c.post("/secrets", { name: "e2b_api_key", value: "e2b_live_123456", allowedDomains: ["api.example.com"] });
+    await c.post("/secrets", { name: "OTHER", value: "zzzz9999", allowedDomains: ["api.example.com"] });
+    h.llmBodies = [];
+    h.script = [
+      callsReply([
+        { id: "m2", name: "http_request", args: { url: "https://api.example.com/x", headers: { "X-API-Key": "{{secret:E2B_API_KEY}}" } } },
+        { id: "m3", name: "http_request", args: { method: "POST", url: "https://api.example.com/empty", headers: { "X-API-Key": "{{secret:OTHER}}" }, body: { a: 1 } } },
+      ]),
+      textReply("ok"),
+    ];
+    await h.chat({ content: "不符", permissionMode: "full" });
+    const [mismatch, emptyBody] = toolMsgs(h.llmBodies[1]);
+    expect(mismatch).toContain("目前已儲存的密鑰：OTHER、e2b_api_key");
+    expect(mismatch).toContain("E2B_API_KEY → e2b_api_key");
+    expect(emptyBody).toMatchObject({ status: 204, body: "" });
+    expect(emptyBody.note).toContain("回應內容為空");
+    for (const s of (await c.get("/secrets")).body.secrets) await c.req("DELETE", `/secrets/${s.id}`);
   });
 });
 

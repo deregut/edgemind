@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Loader2, MessageSquarePlus, Pin, Trash2 } from "lucide-react";
+import { FolderInput, FolderMinus, Loader2, MessageSquare, MessageSquarePlus, Pin, Play, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PERMISSION_MODES, PERMISSION_MODE_LABELS, type ConversationDTO, type PermissionMode, type ProjectDTO } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { MemoryList } from "@/components/Memory";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
 import { ConfirmDialog } from "@/components/PromptDialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RiskBadge } from "@/components/chat/Parts";
 import { FileManager } from "@/components/FileManager";
 import { api } from "@/lib/api";
@@ -27,14 +28,39 @@ export function ProjectPage() {
   const [p, setP] = useState<ProjectDTO | null>(null);
   const [convs, setConvs] = useState<ConversationDTO[] | null>(null);
   const [del, setDel] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     setP(null);
     setConvs(null);
     api<ProjectDTO>(`/projects/${id}`).then(setP).catch((e) => { toast.error(e.message); navigate("/"); });
-    api<ConversationDTO[]>(`/conversations?projectId=${id}`).then(setConvs).catch(() => setConvs([]));
-  }, [id, navigate, ws.conversations]);
+  }, [id, navigate]);
+
+  // This project's conversations, newest first (re-read whenever the sidebar list changes: moves, new chats, titles).
+  useEffect(() => {
+    if (!id) return;
+    api<ConversationDTO[]>(`/conversations?projectId=${id}&limit=500`)
+      .then((r) => {
+        setConvs([...r].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+        setListError(null);
+      })
+      .catch((e) => {
+        setConvs([]);
+        setListError((e as Error).message);
+      });
+  }, [id, ws.conversations]);
+
+  async function moveOut(c: ConversationDTO) {
+    try {
+      await ws.patchConversation(c.id, { projectId: null });
+      await Promise.all([ws.refreshConversations(), ws.refreshProjects()]);
+      toast.success("已移出專案");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
 
   if (!p) return <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
@@ -45,6 +71,9 @@ export function ProjectPage() {
           <h1 className="truncate text-2xl font-semibold">{p.name}</h1>
           {p.description && <p className="text-sm text-muted-foreground">{p.description}</p>}
         </div>
+        {convs?.[0] && (
+          <Button variant="outline" onClick={() => navigate(`/c/${convs[0].id}`)} title={convs[0].title ?? undefined}><Play /> 繼續最近的對話</Button>
+        )}
         <Button onClick={() => navigate(`/?project=${p.id}`)}><MessageSquarePlus /> 在專案中新對話</Button>
       </div>
       <Tabs defaultValue="chats">
@@ -60,18 +89,32 @@ export function ProjectPage() {
         </TabsList>
         <TabsContent value="chats">
           <Card>
-            <CardContent className="divide-y p-0">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 p-4">
+              <CardDescription>這個專案的對話（最新的在最上面）。點一下即可繼續；舊對話可以移進來。</CardDescription>
+              <Button size="sm" variant="outline" onClick={() => setAdding(true)}><FolderInput /> 加入現有對話</Button>
+            </CardHeader>
+            <CardContent className="divide-y border-t p-0" data-testid="project-conversations">
               {convs === null && <div className="p-4 text-sm text-muted-foreground">載入中…</div>}
-              {convs?.length === 0 && <div className="p-4 text-sm text-muted-foreground">這個專案還沒有對話。</div>}
-              {convs?.map((c) => (
-                <Link key={c.id} to={`/c/${c.id}`} className="flex items-center gap-2 px-4 py-3 text-sm hover:bg-accent">
-                  {c.pinned && <Pin className="h-3.5 w-3.5 text-muted-foreground" />}
-                  <span className="truncate">{c.title || "未命名對話"}</span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{new Date(c.updatedAt).toLocaleString("zh-TW")}</span>
-                </Link>
+              {listError && <div role="alert" className="p-4 text-sm text-destructive">無法載入專案對話：{listError}</div>}
+              {convs?.length === 0 && !listError && (
+                <div className="p-4 text-sm text-muted-foreground">這個專案還沒有對話。按「在專案中新對話」開始，或用「加入現有對話」把之前的對話移進來。</div>
+              )}
+              {convs?.map((c, i) => (
+                <div key={c.id} className="group flex items-center gap-2 px-4 py-3 text-sm hover:bg-accent">
+                  <Link to={`/c/${c.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                    {c.pinned ? <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    <span className="truncate">{c.title || "未命名對話"}</span>
+                    {i === 0 && <span className="shrink-0 rounded bg-muted px-1.5 text-[11px] text-muted-foreground">最近</span>}
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{new Date(c.updatedAt).toLocaleString("zh-TW")}</span>
+                  </Link>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-60 group-hover:opacity-100" title="移出專案" aria-label={`把「${c.title || "未命名對話"}」移出專案`} onClick={() => moveOut(c)}>
+                    <FolderMinus />
+                  </Button>
+                </div>
               ))}
             </CardContent>
           </Card>
+          <AddConversationsDialog open={adding} onOpenChange={setAdding} project={p} />
         </TabsContent>
         <TabsContent value="settings"><ProjectSettings p={p} onSaved={setP} onDelete={() => setDel(true)} /></TabsContent>
         <TabsContent value="tools"><ProjectTools p={p} onSaved={setP} /></TabsContent>
@@ -89,6 +132,66 @@ export function ProjectPage() {
           navigate("/");
         }} />
     </div>
+  );
+}
+
+/** Pick conversations outside every project (newest first, searchable) and move them into `project`. */
+function AddConversationsDialog({ open, onOpenChange, project }: { open: boolean; onOpenChange(v: boolean): void; project: ProjectDTO }) {
+  const ws = useWorkspace();
+  const [list, setList] = useState<ConversationDTO[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setPicked(new Set());
+    setFilter("");
+    setList(null);
+    api<ConversationDTO[]>("/conversations?projectId=none&limit=500")
+      .then((r) => setList([...r].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))))
+      .catch((e) => { toast.error((e as Error).message); setList([]); });
+  }, [open]);
+  const shown = (list ?? []).filter((c) => !filter.trim() || (c.title ?? "").toLowerCase().includes(filter.trim().toLowerCase()));
+
+  async function move() {
+    setBusy(true);
+    try {
+      for (const id of picked) await api(`/conversations/${id}`, { method: "PATCH", body: { projectId: project.id } });
+      await Promise.all([ws.refreshConversations(), ws.refreshProjects()]);
+      toast.success(`已把 ${picked.size} 個對話移到「${project.name}」`);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(`移動失敗：${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>把現有對話加入「{project.name}」</DialogTitle>
+          <DialogDescription>只列出不屬於任何專案的對話。移入後它們會出現在專案底下，之後的回覆會使用專案的指示、檔案、知識庫與工具設定。</DialogDescription>
+        </DialogHeader>
+        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="篩選標題…" aria-label="篩選對話" />
+        <div className="max-h-80 divide-y overflow-y-auto rounded-md border">
+          {list === null && <div className="p-3 text-sm text-muted-foreground">載入中…</div>}
+          {list?.length === 0 && <div className="p-3 text-sm text-muted-foreground">沒有專案以外的對話。</div>}
+          {shown.map((c) => (
+            <label key={c.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-accent">
+              <input type="checkbox" checked={picked.has(c.id)} onChange={(e) => setPicked((cur) => { const n = new Set(cur); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} />
+              <span className="min-w-0 flex-1 truncate">{c.title || "未命名對話"}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{new Date(c.updatedAt).toLocaleDateString("zh-TW")}</span>
+            </label>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button onClick={move} disabled={busy || !picked.size}>{busy && <Loader2 className="animate-spin" />} 移入 {picked.size || ""} 個對話</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

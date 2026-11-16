@@ -4,7 +4,7 @@
  * only ever see names, masked previews and allowed domains.
  */
 import { asc, eq, inArray } from "drizzle-orm";
-import { parseAllowedDomains, type SecretDTO } from "../../../shared/src/index";
+import { normalizeSecretName, parseAllowedDomains, SECRET_NAME_PATTERN, type SecretDTO } from "../../../shared/src/index";
 import type { Database } from "../db/client";
 import { secrets } from "../db/schema";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/crypto";
@@ -12,7 +12,7 @@ import { BadInput } from "../lib/errors";
 
 export type SecretRow = typeof secrets.$inferSelect;
 
-export const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+export const SECRET_NAME_RE = SECRET_NAME_PATTERN;
 export const SECRET_REF_RE = /\{\{\s*secret:([A-Za-z_][A-Za-z0-9_]{0,63})\s*\}\}/g;
 const MAX_VALUE = 16_384;
 const MAX_DOMAINS = 50;
@@ -44,9 +44,10 @@ export function hostAllowed(host: string, patterns: string[]): boolean {
   return patterns.some((p) => (p.startsWith("*.") ? h.endsWith(p.slice(1)) && h.length > p.length - 1 : h === p));
 }
 
+/** Same normalization as the settings UI (NFKC, invisible characters removed, trimmed), so the stored name is exactly what the list shows. */
 function validateName(v: unknown): string {
-  const name = String(v ?? "").trim();
-  if (!SECRET_NAME_RE.test(name)) throw new BadInput("名稱只能使用英文字母、數字與底線，且不可以數字開頭（最多 64 字元），例如 E2B_API_KEY");
+  const { name, error } = normalizeSecretName(v);
+  if (error) throw new BadInput(error);
   return name;
 }
 
@@ -120,6 +121,22 @@ export async function loadSecrets(database: Database, key: Uint8Array, names: st
   const rows = await database.db.select().from(secrets).where(inArray(secrets.name, names));
   for (const r of rows) out.set(r.name, { name: r.name, value: await decryptSecret(r.valueEnc, key, aadOf(r.id)), allowedDomains: r.allowedDomains ?? [] });
   return out;
+}
+
+/**
+ * Error for `{{secret:NAME}}` references with no saved secret: says plainly whether the vault is EMPTY (nothing was
+ * ever saved, or it was saved on another deployment / database) or which names DO exist (a name mismatch), with a
+ * case-insensitive near match when there is one.
+ */
+export async function missingSecretsMessage(database: Database, missing: string[]): Promise<string> {
+  const existing = (await database.db.select({ name: secrets.name }).from(secrets).orderBy(asc(secrets.name))).map((r) => r.name);
+  const head = `找不到密鑰：${missing.join("、")}`;
+  if (!existing.length) {
+    return `${head}。「設定 → 密鑰」目前沒有任何已儲存的密鑰（這個部署的資料庫裡是空的）。請使用者到「設定 → 密鑰」按「新增密鑰」，名稱填 ${missing[0]}、貼上值、允許網域填要呼叫的 API 主機，儲存後確認清單中出現它；不要請使用者在對話中貼出密鑰值。`;
+  }
+  const near = missing.flatMap((m) => existing.filter((e) => e.toLowerCase() === m.toLowerCase() || e.replace(/_/g, "").toLowerCase() === m.replace(/_/g, "").toLowerCase()).map((e) => `${m} → ${e}`));
+  const shown = existing.slice(0, 30).join("、") + (existing.length > 30 ? ` 等 ${existing.length} 個` : "");
+  return `${head}（名稱需完全相符、區分大小寫）。目前已儲存的密鑰：${shown}${near.length ? `；可能是指：${near.join("、")}` : ""}。請改用上列名稱，或請使用者到「設定 → 密鑰」新增 ${missing.join("、")}。`;
 }
 
 /** Hint appended when `host` is refused although a pattern looks like it was meant to cover it. */

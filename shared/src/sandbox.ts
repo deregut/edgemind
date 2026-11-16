@@ -87,3 +87,21 @@ export function parseAllowedDomains(input: string | readonly unknown[]): { domai
   }
   return { domains: [...out], errors };
 }
+
+/** Secret names: ASCII letters, digits and underscore, not starting with a digit, at most 64 characters. */
+export const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/**
+ * Normalize a secret name as typed / pasted (shared by the server and the settings UI so both always agree on the
+ * stored name): Unicode NFKC (fullwidth `ＥＲＲ＿ＫＥＹ` → `ERR_KEY`), invisible characters (zero-width space, BOM,
+ * soft hyphen, other format characters) removed, surrounding whitespace trimmed. Returns the name plus a 正體中文
+ * error when the result is still not a valid name (e.g. `MY-KEY`, `1KEY`, a space inside).
+ */
+export function normalizeSecretName(input: unknown): { name: string; error: string | null } {
+  const name = String(input ?? "").normalize("NFKC").replace(/\p{Cf}/gu, "").trim();
+  if (!name) return { name, error: "請輸入名稱，例如 E2B_API_KEY" };
+  if (SECRET_NAME_PATTERN.test(name)) return { name, error: null };
+  const bad = [...new Set([...name].filter((ch) => !/[A-Za-z0-9_]/.test(ch)))].map((ch) => (/\s/.test(ch) ? "空白" : `「${ch}」`));
+  const why = bad.length ? `（不能包含 ${bad.join("、")}）` : /^[0-9]/.test(name) ? "（不可以數字開頭）" : name.length > 64 ? "（超過 64 字元）" : "";
+  return { name, error: `名稱只能使用英文字母、數字與底線，且不可以數字開頭（最多 64 字元），例如 E2B_API_KEY${why}` };
+}

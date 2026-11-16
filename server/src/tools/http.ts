@@ -9,7 +9,7 @@
  */
 import { ToolDeferred, type Tool, type ToolContext } from "../agent/tools";
 import { assertPublicUrl, BlockedUrlError, checkUrlShape } from "./ssrf";
-import { domainMismatchHint, hostAllowed, loadSecrets, makeRedactor, referencedNames, type LoadedSecret } from "../secrets";
+import { domainMismatchHint, hostAllowed, loadSecrets, makeRedactor, missingSecretsMessage, referencedNames, type LoadedSecret } from "../secrets";
 import { normalizePath } from "../storage/files";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -96,7 +96,7 @@ async function execute(args: any, ctx: ToolContext) {
   const names = referencedNames(haystack);
   const secrets = await loadSecrets(ctx.database, ctx.encKey, names);
   const missing = names.filter((n) => !secrets.has(n));
-  if (missing.length) throw new Error(`找不到密鑰：${missing.join("、")}（名稱需完全相符、區分大小寫；請使用者到「設定 → 密鑰」新增，或改用系統提示「密鑰」段落列出的名稱）`);
+  if (missing.length) throw new Error(await missingSecretsMessage(ctx.database, missing));
   const used = [...secrets.values()];
   const redact = makeRedactor(used);
   const safe = (s: string) => redact(s);
@@ -210,6 +210,7 @@ async function execute(args: any, ctx: ToolContext) {
         }
       }
       const cut = text.length > HTTP_BODY_CAP;
+      if (!text.trim()) return { ...base, durationMs: Date.now() - started, body: "", note: `回應內容為空（HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}）。` };
       return {
         ...base,
         durationMs: Date.now() - started,
