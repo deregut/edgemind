@@ -8,6 +8,7 @@ import { createNeonDatabase, type AppDb, type Database } from "../src/db/client"
 import * as schema from "../src/db/schema";
 import { ENV_KEYS, OPTIONAL_ENV_KEYS } from "../src/env";
 import { useNodeQuickJS } from "../src/sandbox/quickjs-node";
+import { neonConfig } from "@neondatabase/serverless";
 
 useNodeQuickJS();
 
@@ -36,9 +37,14 @@ function localDatabase(url: string): Database {
   };
 }
 
+// DEV_DB_DRIVER=neon: use the production driver (neon-http) even for a local DB, through a local Neon HTTP endpoint
+// (e2e/support/neon-http-proxy.mjs, NEON_FETCH_ENDPOINT) — reproduces what Netlify / Cloudflare actually run.
+if (process.env.NEON_FETCH_ENDPOINT) neonConfig.fetchEndpoint = process.env.NEON_FETCH_ENDPOINT;
+const useNeon = (url: string) => process.env.DEV_DB_DRIVER === "neon" || /neon\.tech/.test(url);
+
 let local: Database | undefined;
 const app = createApp({
-  getDatabase: (e) => (/neon\.tech/.test(e.DATABASE_URL) ? createNeonDatabase(e.DATABASE_URL) : (local ??= localDatabase(e.DATABASE_URL))),
+  getDatabase: (e) => (useNeon(e.DATABASE_URL) ? createNeonDatabase(e.DATABASE_URL) : (local ??= localDatabase(e.DATABASE_URL))),
   platform: { name: "node" },
 });
 

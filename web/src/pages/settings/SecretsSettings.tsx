@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { KeyRound, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { parseAllowedDomains, type SecretDTO } from "@edgemind/shared";
+import { normalizeSecretName, parseAllowedDomains, type SecretDTO } from "@edgemind/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,19 @@ export function SecretsSection() {
   const [items, setItems] = useState<SecretDTO[] | null>(null);
   const [editing, setEditing] = useState<SecretDTO | null>(null);
   const [open, setOpen] = useState(false);
-  const load = () => api<{ secrets: SecretDTO[] }>("/secrets").then((r) => setItems(r.secrets)).catch((e) => toast.error(e.message));
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** Reloads the list; a failure is shown in the card (not an endless spinner) with the server's message. */
+  const load = () =>
+    api<{ secrets: SecretDTO[] }>("/secrets")
+      .then((r) => {
+        setItems(r.secrets);
+        setLoadError(null);
+        return r.secrets;
+      })
+      .catch((e) => {
+        setLoadError((e as Error).message);
+        return null;
+      });
   useEffect(() => {
     load();
   }, []);
@@ -45,7 +57,13 @@ export function SecretsSection() {
         <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}><Plus /> 新增密鑰</Button>
       </CardHeader>
       <CardContent>
-        {!items ? (
+        {loadError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">無法載入密鑰清單：{loadError}</span>
+            <Button size="sm" variant="outline" onClick={() => load()}><RefreshCw /> 重試</Button>
+          </div>
+        ) : !items ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : !items.length ? (
           <p className="text-sm text-muted-foreground">尚未新增任何密鑰。例如新增 <code>E2B_API_KEY</code>（允許網域 <code>api.e2b.app</code>）即可讓 e2b-sandbox Skill 使用 E2B 雲端沙盒。</p>
@@ -71,19 +89,27 @@ export function SecretsSection() {
           </ul>
         )}
       </CardContent>
-      <SecretDialog open={open} onOpenChange={setOpen} editing={editing} onSaved={() => { setOpen(false); load(); }} />
+      <SecretDialog open={open} onOpenChange={setOpen} editing={editing} onSaved={async (saved) => {
+        setOpen(false);
+        const list = await load();
+        // Never let a save look successful when the list (what the model sees) does not contain it.
+        if (list && !list.some((x) => x.id === saved.id && x.name === saved.name)) toast.error(`已送出，但重新載入後清單中沒有 ${saved.name}；請重新整理頁面確認，或把瀏覽器開發者工具中 /api/secrets 的回應提供給管理者。`);
+        else if (list) toast.success(`已儲存 ${saved.name}`);
+      }} />
     </Card>
   );
 }
 
-function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean; onOpenChange(v: boolean): void; editing: SecretDTO | null; onSaved(): void }) {
+function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean; onOpenChange(v: boolean): void; editing: SecretDTO | null; onSaved(saved: SecretDTO): void }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [domains, setDomains] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
+    setError(null);
     setName(editing?.name ?? "");
     setValue("");
     setDomains(editing?.allowedDomains.join("\n") ?? "");
@@ -91,24 +117,31 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
   }, [open, editing]);
 
   const parsed = parseAllowedDomains(domains);
+  const nm = normalizeSecretName(name);
+  const dirty = !!(value || (!editing && (name.trim() || domains.trim())));
   // Show what will be stored when normalization changed what was typed (https://, trailing slash, path, case…).
   const rewritten = domains.split(/[\s,，、；;]+/).filter(Boolean).some((d) => !parsed.domains.includes(d));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    setError(null);
     if (parsed.errors.length) {
-      toast.error(parsed.errors.join("；"));
+      setError(parsed.errors.join("；"));
       return;
     }
     setBusy(true);
     const allowedDomains = parsed.domains;
     try {
-      if (editing) await api(`/secrets/${editing.id}`, { method: "PATCH", body: { name, allowedDomains, description, ...(value ? { value } : {}) } });
-      else await api("/secrets", { method: "POST", body: { name, value, allowedDomains, description } });
-      toast.success("已儲存");
-      onSaved();
+      // The server normalizes the name the same way (NFKC, invisible characters, trim) and answers 400 with the reason.
+      const r = editing
+        ? await api<{ secret: SecretDTO }>(`/secrets/${editing.id}`, { method: "PATCH", body: { name, allowedDomains, description, ...(value ? { value } : {}) } })
+        : await api<{ secret: SecretDTO }>("/secrets", { method: "POST", body: { name, value, allowedDomains, description } });
+      if (!r?.secret?.id) throw new Error("伺服器沒有回傳已儲存的密鑰（回應格式不符），密鑰可能沒有存入。");
+      onSaved(r.secret);
     } catch (err) {
-      toast.error((err as Error).message);
+      const msg = (err as Error).message || "儲存失敗";
+      setError(`儲存失敗：${msg}`); // shown inside the dialog, which stays open with what was typed
+      toast.error(`儲存失敗：${msg}`);
     } finally {
       setBusy(false);
     }
@@ -116,7 +149,12 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent
+        className="max-h-[90dvh] max-w-lg overflow-y-auto"
+        // A click outside / Esc must not silently throw away a typed value (it looked like 「已儲存」 but nothing was sent).
+        onInteractOutside={(e) => { if (dirty) e.preventDefault(); }}
+        onEscapeKeyDown={(e) => { if (dirty && !window.confirm("放棄尚未儲存的密鑰？")) e.preventDefault(); }}
+      >
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>{editing ? "編輯密鑰" : "新增密鑰"}</DialogTitle>
@@ -125,7 +163,9 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
           <div className="space-y-1.5">
             <Label htmlFor="secret-name">名稱</Label>
             <Input id="secret-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="E2B_API_KEY" className="font-mono" required autoComplete="off" />
-            <p className="text-xs text-muted-foreground">英文字母、數字與底線，不可以數字開頭。</p>
+            <p className="text-xs text-muted-foreground">英文字母、數字與底線，不可以數字開頭；需與對話中 <code>{"{{secret:名稱}}"}</code> 完全相符（區分大小寫）。</p>
+            {name && nm.error && <p className="text-xs text-destructive">{nm.error}</p>}
+            {name && !nm.error && nm.name !== name && <p className="text-xs text-muted-foreground">將儲存為：<span className="font-mono">{nm.name}</span></p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="secret-value">值</Label>
@@ -151,6 +191,12 @@ function SecretDialog({ open, onOpenChange, editing, onSaved }: { open: boolean;
             <Label htmlFor="secret-desc">說明（選填，模型看得到）</Label>
             <Input id="secret-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="E2B 雲端沙盒 API Key" maxLength={500} />
           </div>
+          {error && (
+            <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="min-w-0 break-words">{error}</span>
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>取消</Button>
             <Button type="submit" disabled={busy || parsed.errors.length > 0}>{busy && <Loader2 className="animate-spin" />} 儲存</Button>

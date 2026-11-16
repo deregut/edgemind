@@ -52,6 +52,14 @@ export function pretty(v: unknown): string {
   }
 }
 
+/** "", null, {} or [] — rendered as an explicit note instead of an empty box. */
+export function isEmptyResult(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return !v.trim();
+  if (Array.isArray(v)) return v.length === 0;
+  return typeof v === "object" && Object.keys(v as object).length === 0;
+}
+
 /**
  * running     = the run is live (streaming / polling) and this call has no result yet
  * waiting     = paused on this call (approval, ask_user question, or browser-side execution)
@@ -94,7 +102,7 @@ export function ToolCard(props: { name: string; args: unknown; argsText?: string
           {props.result !== undefined && (
             <div>
               <div className={cn("mb-1 text-xs font-medium", props.state === "error" ? "text-destructive" : "text-muted-foreground")}>結果</div>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 text-xs">{pretty(props.result)}</pre>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 text-xs">{isEmptyResult(props.result) ? <span className="text-muted-foreground">（工具沒有回傳任何內容）</span> : pretty(props.result)}</pre>
             </div>
           )}
           {props.state === "interrupted" && (

@@ -33,6 +33,9 @@ const env = {
   JWT_SECRET: "e2e-jwt-secret-e2e-jwt-secret-e2e-jwt-secret",
 };
 const reuse = process.env.E2E_REUSE === "1";
+// E2E_DB=neon: the API talks to Postgres through the production neon-http driver (via a local Neon HTTP endpoint).
+const neon = process.env.E2E_DB === "neon";
+const apiEnv = neon ? { ...env, DEV_DB_DRIVER: "neon", NEON_FETCH_ENDPOINT: "http://127.0.0.1:4444/sql" } : env;
 
 export default defineConfig({
   testDir: ".",
@@ -46,7 +49,8 @@ export default defineConfig({
   webServer: [
     { command: "node e2e/support/mock-llm.mjs", cwd: root, port: 8790, reuseExistingServer: reuse, stdout: "pipe" },
     { command: "npx tsx e2e/support/s3-server.ts", cwd: root, port: 9000, reuseExistingServer: reuse, stdout: "pipe" },
-    { command: "npx tsx scripts/dev-server.ts", cwd: `${root}/server`, env, port: 8787, reuseExistingServer: reuse, timeout: 60_000, stdout: "pipe" },
+    ...(neon ? [{ command: "node e2e/support/neon-http-proxy.mjs", cwd: root, env: { PG_URL: env.DATABASE_URL }, port: 4444, reuseExistingServer: reuse, stdout: "pipe" as const }] : []),
+    { command: "npx tsx scripts/dev-server.ts", cwd: `${root}/server`, env: apiEnv, port: 8787, reuseExistingServer: reuse, timeout: 60_000, stdout: "pipe" },
     preview
       ? { command: `npx vite build && npx vite preview --port ${webPort} --strictPort`, cwd: `${root}/web`, port: webPort, reuseExistingServer: reuse, timeout: 240_000 }
       : { command: `npx vite --port ${webPort} --strictPort`, cwd: `${root}/web`, port: webPort, reuseExistingServer: reuse, timeout: 60_000, stdout: "pipe" },

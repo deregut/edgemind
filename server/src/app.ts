@@ -42,6 +42,16 @@ export function createApp(deps: AppDeps) {
     return c.json({ error: "internal_error", message: err.message }, 500);
   });
 
+  // API answers are per-user live data: never let a browser / CDN cache serve a stale list (e.g. 設定 → 密鑰 after a save).
+  app.use("*", async (c, next) => {
+    await next();
+    try {
+      if (!c.res.headers.has("cache-control")) c.res.headers.set("cache-control", "no-store");
+    } catch {
+      /* immutable headers (proxied response): leave as is */
+    }
+  });
+
   const envCache = new WeakMap<object, EnvValidation>();
   const checkEnv = (raw: Record<string, unknown>) => {
     let v = envCache.get(raw);
