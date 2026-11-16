@@ -335,6 +335,7 @@ OAuth 2.1：
 - **Python**：在瀏覽器以 Pyodide 執行（第一次從 jsDelivr 下載約數十 MB，之後快取），常用套件依 `import` 自動安裝，matplotlib 圖表自動存成 PNG。需要開著聊天分頁；背景模式與排程任務中不可用。
 - 輸出各最多 20,000 字元，過長時完整內容存成專案檔 `code_run_outputs/…`。
 - 需要完整 Linux 環境或其他語言時，使用內建 Skills `e2b-sandbox`（E2B 雲端沙盒）或 `self-hosted-runner`（自架 Piston／Judge0），搭配「密鑰」與 `http_request`。
+- E2B 預設映像的 Node 較舊：`e2b-sandbox` 會在需要時把新版 Node（預設 LTS 26）裝到沙盒家目錄；常用的話可照 Skill 內 `references/node-template.md` 建一個預裝新版 Node 的自訂模板，並在專案指示寫明模板名稱。
 
 ---
 
