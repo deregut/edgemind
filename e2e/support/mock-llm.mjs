@@ -1,5 +1,5 @@
 // Tiny OpenAI-compatible mock LLM (streaming chat completions) for the E2E tests.
-// Turn 1 (last message is from the user): a code_run python tool call. After a tool result: a short text.
+// Turn 1 (last message is from the user): a code_run python tool call (a plain 「收到。」 when it contains 純文字). After a tool result: a short text.
 // The tool result that reached the model is kept per prompt (text of the first user message): GET /tool-result?prompt=…
 import http from "node:http";
 
@@ -36,7 +36,12 @@ http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ id: "c", object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: "測試標題" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
     }
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-    if (last?.role === "tool") {
+    if (last?.role === "user" && textOf(last).includes("純文字")) {
+      // plain text turn (no tool call): conversation-creation tests
+      chunk(res, { role: "assistant", content: "" });
+      chunk(res, { content: "收到。" });
+      chunk(res, {}, "stop");
+    } else if (last?.role === "tool") {
       toolResults.set(textOf(msgs.find((m) => m.role === "user")).trim(), last.content);
       chunk(res, { role: "assistant", content: "" });
       chunk(res, { content: "Python 已執行完畢。" });

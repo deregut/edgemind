@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Download, FolderOpen, Loader2, Play, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -69,6 +69,12 @@ export function ChatPage() {
   const [draftMode, setDraftMode] = useState<PermissionMode | null>(null);
 
   const ownNav = useRef<string | null>(null);
+  /**
+   * The conversation this page shows right now (null = a new chat), updated synchronously on every route change and
+   * when a new chat gets its id. Async results (messages, titles) for any other conversation are dropped, so a slow
+   * response for the previous conversation can never repaint a new chat with it (and with its projectId).
+   */
+  const shownConv = useRef<string | null>(routeId ?? null);
   const pollRef = useRef<{ runId: string; stop: boolean } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -81,7 +87,11 @@ export function ChatPage() {
   const turns = useMemo(() => toTurns(path), [path]);
 
   // effective model / permission mode
-  const effectiveModelId = draftModel ?? meta?.modelId ?? project?.defaultModelId ?? ws.agentSettings?.defaultModelId ?? ws.models[0]?.id ?? null;
+  // Only ids that are in the current model list: a saved choice (conversation, project or global default) can point at a
+  // model that was removed or disabled since; sending it would refuse the turn, and the picker could not show it anyway.
+  const effectiveModelId =
+    [draftModel, meta?.modelId, project?.defaultModelId, ws.agentSettings?.defaultModelId].find((id) => !!id && ws.models.some((m) => m.id === id)) ??
+    ws.models[0]?.id ?? null;
   const model = ws.models.find((m) => m.id === effectiveModelId);
   const convMode = meta ? meta.permissionMode : draftMode;
 
@@ -101,6 +111,7 @@ export function ChatPage() {
     setLoading(true);
     try {
       const r = await api<MessagesResponse>(`/conversations/${id}/messages`);
+      if (shownConv.current !== id) return; // the user moved on (e.g. 新對話) while this was loading
       setMeta({ id: r.conversation.id, title: r.conversation.title, projectId: r.conversation.projectId, modelId: r.conversation.modelId, permissionMode: r.conversation.permissionMode });
       setTree(Object.fromEntries(r.messages.map((m) => [m.id, m])));
       setLeafId(r.conversation.activeLeafId);
@@ -123,34 +134,38 @@ export function ChatPage() {
         startPolling(ar.id, ar.lastSeq);
       }
     } catch (e) {
+      if (shownConv.current !== id) return;
       if (e instanceof ApiError && e.status === 404) {
         toast.error("找不到對話");
         navigate("/");
       } else toast.error((e as Error).message);
     } finally {
-      setLoading(false);
+      if (shownConv.current === id) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  // Layout effect: the reset lands before the browser paints the new route, so the composer, the model / permission
+  // pickers and the project link never act on the previous conversation after 新對話 or a sidebar click.
+  useLayoutEffect(() => {
     if (routeId && ownNav.current === routeId) {
       ownNav.current = null;
       return;
     }
+    shownConv.current = routeId ?? null;
     stopPolling();
     setConvId(routeId ?? null);
     setDraftModel(null);
     setDraftMode(null);
+    // never keep showing the previous conversation (its messages, title, project) while the next one loads
+    setMeta(null);
+    setTree({});
+    setLeafId(null);
+    setLive(null);
+    setBusy(false);
+    setPausedRun(null);
+    setLoading(false);
     if (routeId) load(routeId);
-    else {
-      setMeta(null);
-      setTree({});
-      setLeafId(null);
-      setLive(null);
-      setBusy(false);
-      setPausedRun(null);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId]);
 
@@ -171,7 +186,7 @@ export function ChatPage() {
       api(`/conversations/${id}/auto-title`, { method: "POST" })
         .then(() => ws.refreshConversations())
         .then(() => api<{ title: string }>(`/conversations/${id}`))
-        .then((c) => setMeta((m) => (m ? { ...m, title: c.title } : m)))
+        .then((c) => setMeta((m) => (m && m.id === id ? { ...m, title: c.title } : m)))
         .catch(() => {});
     }
   }, [ws]);
@@ -183,6 +198,7 @@ export function ChatPage() {
         setLive((l) => ({ ...(l ?? emptyLive(e.runId, "stream")), runId: e.runId }));
         if (!convId) {
           setConvId(e.conversationId);
+          shownConv.current = e.conversationId;
           ownNav.current = e.conversationId;
           navigate(`/c/${e.conversationId}`, { replace: true });
           setMeta({ id: e.conversationId, title: null, projectId: projectId ?? null, modelId: null, permissionMode: draftMode });

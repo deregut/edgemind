@@ -12,7 +12,10 @@ initPwa();
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
-      <BrowserRouter>
+      {/* No React transitions for navigation: with them the previous page stays on screen and interactive until the
+          new route finishes rendering, so a message typed right after 新對話 went into the previous (e.g. project)
+          conversation and no new conversation was created. */}
+      <BrowserRouter useTransitions={false}>
         <App />
         <Toaster richColors position="top-center" />
       </BrowserRouter>

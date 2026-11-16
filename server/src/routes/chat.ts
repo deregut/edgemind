@@ -26,6 +26,7 @@ import { fileStore } from "./files";
 import { ensureBuiltinSkills } from "../skills/builtin";
 import { SkillStore } from "../skills/store";
 import { isPermissionMode } from "../agent/permissions";
+import { usableModelId } from "../llm";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
@@ -200,19 +201,25 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
 
   async function pickModel(c: Ctx, explicit: unknown, conv?: { modelId: string | null; projectId: string | null }): Promise<string> {
     const db = c.get("database").db;
+    const database = c.get("database");
     if (explicit !== undefined && explicit !== null) {
       if (!isUuid(explicit)) throw new BadInput("modelId 格式錯誤");
-      const [m] = await db.select({ id: models.id }).from(models).where(eq(models.id, explicit)).limit(1);
-      if (!m) throw new BadInput("找不到指定的模型");
-      return m.id;
+      const m = await usableModelId(database, explicit);
+      if (m) return m;
+      // A page opened before the model was removed / disabled (or a stale global default it fell back to) still sends
+      // the old id: use the next usable default instead of refusing the turn (and, for a new chat, the conversation).
     }
-    if (conv?.modelId) return conv.modelId;
+    // Saved references can point at a model that was removed or disabled since: skip those instead of failing the turn.
+    const convModel = await usableModelId(database, conv?.modelId);
+    if (convModel) return convModel;
     if (conv?.projectId) {
       const [p] = await db.select({ m: projects.defaultModelId }).from(projects).where(eq(projects.id, conv.projectId)).limit(1);
-      if (p?.m) return p.m;
+      const projModel = await usableModelId(database, p?.m);
+      if (projModel) return projModel;
     }
     const [s] = await db.select().from(settings).where(eq(settings.key, "default_model_id")).limit(1);
-    if (isUuid(s?.value)) return s.value;
+    const globalModel = await usableModelId(database, s?.value);
+    if (globalModel) return globalModel;
     const [first] = await db
       .select({ id: models.id })
       .from(models)
@@ -269,6 +276,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
     const mode = body.mode === "background" ? "background" : "stream";
     let conversationId: string;
     let conv: typeof conversations.$inferSelect | undefined;
+    let newConvModel: string | undefined;
     if (body.conversationId !== undefined) {
       if (!isUuid(body.conversationId)) throw new BadInput("conversationId 格式錯誤");
       [conv] = await db.select().from(conversations).where(eq(conversations.id, body.conversationId)).limit(1);
@@ -289,11 +297,15 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
       const firstText = typeof body.content === "string" ? body.content : Array.isArray(body.content) ? body.content.find((p: any) => p?.type === "text")?.text ?? "" : "";
       const permissionMode = body.permissionMode ?? null;
       if (permissionMode !== null && !isPermissionMode(permissionMode)) throw new BadInput("未知的權限模式");
+      // Validate everything that can refuse the turn BEFORE the row exists: a failed first message must not leave an
+      // empty conversation behind in the sidebar.
+      parseContent(body.content);
+      newConvModel = await pickModel(c, body.modelId, { modelId: null, projectId });
       [conv] = await db.insert(conversations).values({ projectId, permissionMode, title: String(firstText).trim().slice(0, 50) || "新對話" }).returning();
       conversationId = conv.id;
     }
 
-    const modelId = await pickModel(c, body.modelId, conv);
+    const modelId = newConvModel ?? (await pickModel(c, body.modelId, conv));
     let userMessageId: string;
     if (body.regenerate !== undefined) {
       if (!isUuid(body.regenerate)) throw new BadInput("regenerate 格式錯誤");
@@ -497,13 +509,7 @@ export function mountChat(app: Hono<HonoEnv>, deps: AppDeps): ChatApi {
       const db = database.db;
       await ensureBuiltinSkills(new SkillStore(database, fileStore(c, deps).s3));
       if (a.permissionMode !== null && !isPermissionMode(a.permissionMode)) throw new BadInput("未知的權限模式");
-      let modelId: string;
-      try {
-        modelId = await pickModel(c, a.modelId ?? undefined, { modelId: null, projectId: a.projectId });
-      } catch (e) {
-        if (a.modelId && e instanceof BadInput) modelId = await pickModel(c, undefined, { modelId: null, projectId: a.projectId }); // model deleted → default
-        else throw e;
-      }
+      const modelId = await pickModel(c, a.modelId ?? undefined, { modelId: null, projectId: a.projectId }); // model deleted → default
       const [conv] = await db.insert(conversations).values({ projectId: a.projectId, permissionMode: a.permissionMode, title: a.title.slice(0, 80) || "排程任務" }).returning();
       const msg = await insertMessage(database, { conversationId: conv.id, parentId: null, role: "user", parts: [{ type: "text", text: a.prompt }] });
       const [run] = await db.insert(runs).values({
