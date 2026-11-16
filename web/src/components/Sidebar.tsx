@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Archive, Download, BarChart3, CalendarClock, ArchiveRestore, FolderInput, FolderOpen, FolderPlus, LogOut, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, X } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { AlertTriangle, Archive, Download, BarChart3, CalendarClock, ArchiveRestore, ChevronDown, ChevronRight, FolderInput, FolderMinus, FolderOpen, FolderPlus, LogOut, MessageSquarePlus, MoreHorizontal, Pencil, Pin, PinOff, Plus, Search, Settings, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import type { ConversationDTO, SpendStatus } from "@edgemind/shared";
+import type { ConversationDTO, ProjectDTO, SpendStatus } from "@edgemind/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,8 +37,55 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
     if (showArchived) api<ConversationDTO[]>("/conversations?archived=1").then(setArchived).catch(() => {});
   }, [showArchived, ws.conversations]);
 
-  const pinned = useMemo(() => ws.conversations.filter((c) => c.pinned), [ws.conversations]);
-  const recent = useMemo(() => ws.conversations.filter((c) => !c.pinned), [ws.conversations]);
+  // Project conversations live under their project; 最近對話 / 已釘選 show only conversations outside every project.
+  const loose = useMemo(() => ws.conversations.filter((c) => !c.projectId), [ws.conversations]);
+  const pinned = useMemo(() => loose.filter((c) => c.pinned), [loose]);
+  const recent = useMemo(() => loose.filter((c) => !c.pinned), [loose]);
+  const byProject = useMemo(() => {
+    const m = new Map<string, ConversationDTO[]>();
+    for (const c of ws.conversations) if (c.projectId) (m.get(c.projectId) ?? m.set(c.projectId, []).get(c.projectId)!).push(c);
+    for (const list of m.values()) list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); // newest first
+    return m;
+  }, [ws.conversations]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("em:expandedProjects") ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const setOpen = (id: string, open: boolean) =>
+    setExpanded((cur) => {
+      if (cur.has(id) === open) return cur;
+      const n = new Set(cur);
+      if (open) n.add(id);
+      else n.delete(id);
+      localStorage.setItem("em:expandedProjects", JSON.stringify([...n]));
+      return n;
+    });
+  // The open conversation's project (or the open project page) is always expanded, so its chat is visible in place.
+  const { pathname } = useLocation();
+  const activeProject = ws.conversations.find((c) => c.id === activeId)?.projectId ?? (/^\/p\/([0-9a-f-]{36})/.exec(pathname)?.[1] ?? null);
+  useEffect(() => {
+    // a conversation just moved into a project: show it there
+    const onMoved = (e: Event) => setOpen((e as CustomEvent<string>).detail, true);
+    window.addEventListener("em:expand-project", onMoved);
+    return () => window.removeEventListener("em:expand-project", onMoved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (activeProject) setOpen(activeProject, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject]);
+
+  /** Opening a project continues its most recent conversation; a project without conversations opens its page. */
+  function openProject(p: ProjectDTO) {
+    setOpen(p.id, true);
+    const latest = byProject.get(p.id)?.[0];
+    navigate(latest ? `/c/${latest.id}` : `/p/${p.id}`);
+    onNavigate?.();
+  }
 
   async function logout() {
     await api("/auth/logout", { method: "POST" }).catch(() => {});
@@ -85,12 +132,8 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
               action={<button className="text-muted-foreground hover:text-foreground" title="新增專案" aria-label="新增專案" onClick={() => setNewProject(true)}><FolderPlus className="h-4 w-4" /></button>}
             >
               {ws.projects.map((p) => (
-                <NavLink key={p.id} to={`/p/${p.id}`} onClick={onNavigate}
-                  className={({ isActive }) => cn("flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", isActive && "bg-accent font-medium")}>
-                  <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{p.name}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{p.conversationCount ?? ""}</span>
-                </NavLink>
+                <ProjectItem key={p.id} p={p} convs={byProject.get(p.id) ?? []} open={expanded.has(p.id)} activeId={activeId}
+                  pageActive={pathname === `/p/${p.id}`} onToggle={() => setOpen(p.id, !expanded.has(p.id))} onOpen={() => openProject(p)} onNavigate={onNavigate} />
               ))}
               {!ws.projects.length && <p className="px-2 py-1 text-xs text-muted-foreground">尚無專案</p>}
             </Section>
@@ -142,9 +185,52 @@ export function Sidebar({ onLogout, onNavigate }: { onLogout(): void; onNavigate
   );
 }
 
+/**
+ * A project in the sidebar: click = continue its most recent conversation (or its page when it has none); the chevron
+ * expands its conversations (newest first) with an explicit 「在專案中新對話」 and a link to the project page.
+ */
+function ProjectItem({ p, convs, open, activeId, pageActive, onToggle, onOpen, onNavigate }: {
+  p: ProjectDTO; convs: ConversationDTO[]; open: boolean; activeId?: string; pageActive: boolean; onToggle(): void; onOpen(): void; onNavigate?(): void;
+}) {
+  const navigate = useNavigate();
+  const [all, setAll] = useState(false);
+  const shown = all ? convs : convs.slice(0, 8);
+  const inProject = convs.some((c) => c.id === activeId);
+  return (
+    <div data-testid="sidebar-project" data-project-id={p.id}>
+      <div className={cn("group flex items-center rounded-md hover:bg-accent", (pageActive || (inProject && !open)) && "bg-accent")}>
+        <button className="rounded p-1 pl-1.5 text-muted-foreground hover:text-foreground" onClick={onToggle} aria-label={open ? `收合 ${p.name}` : `展開 ${p.name}`} aria-expanded={open}>
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <button className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left text-sm" onClick={onOpen} title={convs.length ? `繼續「${convs[0].title || "未命名對話"}」` : "開啟專案"}>
+          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className={cn("truncate", pageActive && "font-medium")}>{p.name}</span>
+        </button>
+        <span className="text-xs text-muted-foreground group-hover:hidden">{convs.length || ""}</span>
+        <Link to={`/p/${p.id}`} onClick={onNavigate} className="mr-1 hidden rounded p-1 text-muted-foreground hover:text-foreground group-hover:block" title="專案首頁（對話列表與設定）" aria-label={`${p.name} 專案首頁`}>
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      {open && (
+        <div className="ml-4 space-y-0.5 border-l pl-1.5">
+          <button className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => { navigate(`/?project=${p.id}`); onNavigate?.(); }}>
+            <MessageSquarePlus className="h-3.5 w-3.5" /> 在專案中新對話
+          </button>
+          {shown.map((c) => <ConversationItem key={c.id} c={c} active={c.id === activeId} onNavigate={onNavigate} />)}
+          {convs.length > 8 && (
+            <button className="px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => setAll((v) => !v)}>{all ? "顯示較少" : `顯示全部 ${convs.length} 個對話`}</button>
+          )}
+          {!convs.length && <p className="px-2 py-1 text-xs text-muted-foreground">還沒有對話；可從對話的「⋯ → 移到專案」把舊對話移進來。</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="mt-3">
+    <div className="mt-3" data-section={title}>
       <div className="mb-1 flex items-center justify-between px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <span>{title}</span>
         {action}
@@ -190,7 +276,10 @@ function ConversationItem({ c, active, onNavigate }: { c: ConversationDTO; activ
           <DropdownMenuItem onSelect={() => act(() => ws.patchConversation(c.id, { pinned: !c.pinned }))}>
             {c.pinned ? <><PinOff /> 取消釘選</> : <><Pin /> 釘選</>}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setMove(true)}><FolderInput /> 移至專案</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => { setTarget(c.projectId ?? ""); setMove(true); }}><FolderInput /> {c.projectId ? "移到其他專案…" : "移到專案…"}</DropdownMenuItem>
+          {c.projectId && (
+            <DropdownMenuItem onSelect={() => act(() => ws.patchConversation(c.id, { projectId: null }), "已移出專案")}><FolderMinus /> 移出專案</DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => act(() => ws.patchConversation(c.id, { archived: !c.archived }), c.archived ? "已取消封存" : "已封存")}>
             {c.archived ? <><ArchiveRestore /> 取消封存</> : <><Archive /> 封存</>}
           </DropdownMenuItem>
@@ -207,14 +296,19 @@ function ConversationItem({ c, active, onNavigate }: { c: ConversationDTO; activ
         }, "已刪除")} />
       <Dialog open={move} onOpenChange={setMove}>
         <DialogContent>
-          <DialogHeader><DialogTitle>移至專案</DialogTitle></DialogHeader>
-          <NativeSelect value={target} onChange={(e) => setTarget(e.target.value)}>
+          <DialogHeader><DialogTitle>移到專案</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">「{c.title || "未命名對話"}」會出現在所選專案底下，之後的回覆會使用該專案的指示、檔案、知識庫與工具設定。</p>
+          <NativeSelect value={target} onChange={(e) => setTarget(e.target.value)} aria-label="目標專案">
             <option value="">（不屬於任何專案）</option>
             {ws.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </NativeSelect>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setMove(false)}>取消</Button>
-            <Button onClick={() => act(async () => { await ws.patchConversation(c.id, { projectId: target || null }); setMove(false); }, "已移動")}>移動</Button>
+            <Button onClick={() => act(async () => {
+              await ws.patchConversation(c.id, { projectId: target || null });
+              setMove(false);
+              if (target) window.dispatchEvent(new CustomEvent("em:expand-project", { detail: target }));
+            }, target ? "已移到專案" : "已移出專案")}>移動</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

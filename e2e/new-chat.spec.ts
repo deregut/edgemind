@@ -35,7 +35,7 @@ async function startNonProjectChat(page: Page, label: string) {
 }
 
 const sidebar = (page: Page) => page.locator("aside").first(); // desktop sidebar (the second <aside> is the mobile drawer)
-const newChatButton = (page: Page) => sidebar(page).getByRole("button", { name: "新對話" });
+const newChatButton = (page: Page) => sidebar(page).getByRole("button", { name: "新對話", exact: true });
 
 test.beforeEach(async ({ page }) => {
   errors.length = 0;

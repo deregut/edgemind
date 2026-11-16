@@ -24,7 +24,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [agentSettings, setAgentSettings] = useState<AgentSettingsDTO | null>(null);
 
   const refreshConversations = useCallback(async () => {
-    setConversations(await api<ConversationDTO[]>("/conversations"));
+    setConversations(await api<ConversationDTO[]>("/conversations?limit=500")); // all projects: the sidebar groups them
   }, []);
   const refreshProjects = useCallback(async () => {
     setProjects(await api<ProjectDTO[]>("/projects"));

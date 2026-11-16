@@ -1,6 +1,6 @@
 /**
  * Conversations, projects, model picker, tool list, agent settings.
- *   GET    /api/conversations?q=&archived=0|1|all&projectId=&limit=
+ *   GET    /api/conversations?q=&archived=0|1|all&projectId=<uuid>|none&limit=   (projectId=none: only conversations outside every project)
  *   PATCH  /api/conversations/:id                 { title, pinned, archived, projectId, modelId, permissionMode }
  *   DELETE /api/conversations/:id
  *   PUT    /api/conversations/:id/active-leaf     { leafId }  (branch switcher)
@@ -159,6 +159,7 @@ export function mountWorkspace(app: Hono<HonoEnv>, deps: AppDeps) {
     else if (archived === "1") conds.push(eq(conversations.archived, true));
     if (projectId === "none") conds.push(isNull(conversations.projectId));
     else if (isUuid(projectId)) conds.push(eq(conversations.projectId, projectId));
+    else if (projectId !== undefined && projectId !== "") throw new BadInput("projectId 必須是專案 id 或 none"); // never silently list everything
 
     if (!q) {
       const rows = await db.select().from(conversations).where(conds.length ? and(...conds) : undefined)
